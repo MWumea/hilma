@@ -21,6 +21,9 @@ let lastSnapTurnTime = 0;
 let leftStickWasCentered = true;
 
 const playerRadius = 0.3; 
+// ===== NYTT: En större säkerhetsbuffert för ytterväggarna =====
+const wallCollisionBuffer = 0.5; // Stoppar spelaren 50cm från väggen
+
 let roomBoundaries = {};
 let benchActualBounds = null; 
 
@@ -32,14 +35,14 @@ let floorMesh;
 let lastWidth = 0;
 let lastHeight = 0;
 
-// ===== NYTT: VARIABLER FÖR TIMER OCH SPELOGIK =====
 let gameTimerInterval = null;
-const gameDuration = 7 * 60; // 7 minuter i sekunder
+const gameDuration = 7 * 60;
 let timeRemaining = gameDuration;
 let timerElement;
-const revealStartTime = 60; // Ledtrådar börjar belysas under sista 60 sek
-const clueLightMaxIntensity = 3.0; // Max ljusstyrka för ledtrådslamporna
-// ===== SLUT PÅ NYA VARIABLER =====
+const revealStartTime = 60;
+const clueLightMaxIntensity = 3.0;
+
+let worldTimer = null;
 
 function checkXR() {
     if ('xr' in navigator) {
@@ -91,7 +94,6 @@ function init() {
 
     document.getElementById('container').appendChild(renderer.domElement);
     
-    // NYTT: Hämta referens till timer-elementet
     timerElement = document.getElementById('timer');
 
     room = new Room(scene); 
@@ -100,11 +102,12 @@ function init() {
     createTeleportSystem();
 
     if (room && room.roomSize) {
+        // ===== JUSTERAD: Använder den nya, större bufferten för väggarna =====
         roomBoundaries = {
-            minX: -room.roomSize.width + playerRadius,
-            maxX: room.roomSize.width - playerRadius,
-            minZ: -room.roomSize.depth + playerRadius,
-            maxZ: room.roomSize.depth + playerRadius,
+            minX: -room.roomSize.width + wallCollisionBuffer,
+            maxX: room.roomSize.width - wallCollisionBuffer,
+            minZ: -room.roomSize.depth + wallCollisionBuffer,
+            maxZ: room.roomSize.depth - wallCollisionBuffer,
         };
     } 
     if (room.benchMesh && room.benchDimensions) {
@@ -125,6 +128,10 @@ function init() {
     
     if (typeof loadAndPlacePlants === 'function') {
         loadAndPlacePlants(scene, room.roomSize);
+    }
+    
+    if (typeof getWorldTimerObject === 'function') {
+        worldTimer = getWorldTimerObject();
     }
     
     setupControllers(); 
@@ -258,40 +265,49 @@ function handleTeleport(controller) {
     }
 }
 
-// ===== NYTT: FUNKTION FÖR ATT STARTA/ÅTERSTÄLLA SPELET =====
 function startGame() {
     timeRemaining = gameDuration;
     if (gameTimerInterval) clearInterval(gameTimerInterval);
     
     timerElement.style.display = 'block';
     gameTimerInterval = setInterval(updateTimer, 1000);
-    updateTimer(); // Anropa direkt för att visa 07:00
+    updateTimer();
 }
 
-// ===== NYTT: FUNKTION SOM KÖRS VARJE SEKUND =====
+function updateWorldTimerDisplay(minutes, seconds) {
+    if (!worldTimer || !worldTimer.context) return;
+
+    const { context, texture, canvas } = worldTimer;
+    const text = `${minutes}:${seconds}`;
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    context.font = 'bold 90px Arial';
+    context.fillStyle = 'red';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(text, canvas.width / 2, canvas.height / 2);
+    texture.needsUpdate = true;
+}
+
 function updateTimer() {
     if (timeRemaining > 0) {
         timeRemaining--;
     } else {
         clearInterval(gameTimerInterval);
-        // Här kan du lägga till logik för vad som händer när tiden är slut
-        // T.ex. avsluta VR-sessionen eller visa ett "Tiden är slut"-meddelande
     }
 
     const minutes = Math.floor(timeRemaining / 60).toString().padStart(2, '0');
     const seconds = (timeRemaining % 60).toString().padStart(2, '0');
+    
     timerElement.innerText = `${minutes}:${seconds}`;
+    updateWorldTimerDisplay(minutes, seconds);
 
-    // Uppdatera ledtrådsljusen (behöver inte köras varje sekund, men enklast här)
     updateClueLights();
 }
 
-// ===== NYTT: FUNKTION FÖR ATT UPPDATERA LEDTRÅDSBELYSNINGEN =====
 function updateClueLights() {
     let intensity = 0;
-    // Om vi är inne i "avslöjandetiden"
     if (timeRemaining <= revealStartTime) {
-        // Beräkna hur långt in i avslöjandetiden vi är (0.0 till 1.0)
         const progress = 1.0 - (timeRemaining / revealStartTime);
         intensity = clueLightMaxIntensity * progress;
     }
@@ -314,7 +330,7 @@ function startVR() {
     }).then(session => {
         renderer.xr.setSession(session);
         session.addEventListener('end', onSessionEnded);
-        startGame(); // Starta spelet och timern!
+        startGame();
     });
 }
 
@@ -326,11 +342,10 @@ function onSessionEnded() {
     if (teleportArc) teleportArc.visible = false;
     if (teleportMarker) teleportMarker.visible = false;
 
-    // NYTT: Stoppa timern och återställ belysningen när sessionen avslutas
     if (gameTimerInterval) clearInterval(gameTimerInterval);
     timerElement.style.display = 'none';
     timeRemaining = gameDuration;
-    updateClueLights(); // Anropa med full tid för att släcka lamporna (intensity 0)
+    updateClueLights();
 }
 
 function setupControllers() {

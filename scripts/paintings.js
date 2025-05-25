@@ -7,6 +7,47 @@ let canvasNormalMap = null;
 let canvasRoughnessMap = null;
 let canvasAoMap = null;
 
+// Global variabel för att hålla reda på vår 3D-timer
+let worldTimerObject = null;
+
+// Funktion för att skapa timern i 3D-världen
+function createWorldTimer(scene, paintingMesh, paintingData) {
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    const canvasWidth = 512;
+    const canvasHeight = 128;
+    canvas.width = canvasWidth;
+    canvas.height = canvasHeight;
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true
+    });
+    
+    const planeWidth = 1.5; // Hur bred timern ska vara i meter
+    const planeHeight = planeWidth * (canvasHeight / canvasWidth); // Behåll bildförhållandet
+    const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+    
+    const timerMesh = new THREE.Mesh(geometry, material);
+    
+    // Positionera timern precis ovanför tavlan
+    const paintingPos = paintingMesh.position;
+    const paintingSize = paintingData.size;
+    timerMesh.position.set(
+        paintingPos.x,
+        // JUSTERAD: Sänkt klockan med 20cm för att undvika konflikt med spotlight.
+        paintingPos.y + (paintingSize.height / 2) + 0.15, 
+        paintingPos.z - 0.01 // Pyttelite framför väggen
+    );
+    
+    scene.add(timerMesh);
+    
+    // Spara de delar vi behöver för att kunna uppdatera texten senare
+    worldTimerObject = { context, texture, canvas };
+}
+
+
 function createPaintings(scene, roomInstance) {
     if (!textureLoaderInstanceP) {
         textureLoaderInstanceP = new THREE.TextureLoader();
@@ -66,18 +107,12 @@ function createPaintings(scene, roomInstance) {
             id: "painting_left_1", imagePath: "images/tavla1.jpg",
             position: new THREE.Vector3(-W_half + wallOffsetToCenter, paintingCenterY, -D_half * 0.4),
             rotationY: Math.PI / 2, size: { width: paintingWidth, height: paintingHeight },
-            // EXEMPEL: Definiera ledtrådar för denna tavla.
-            // Byt ut dessa koordinater mot dina egna.
-            clues: [
-                { uv: new THREE.Vector2(0.75, 0.80) }, // En ledtråd i övre högra kvadranten
-                { uv: new THREE.Vector2(0.25, 0.30) }  // En annan ledtråd i nedre vänstra
-            ]
+            clues: [ { uv: new THREE.Vector2(0.75, 0.80) }, { uv: new THREE.Vector2(0.25, 0.30) } ]
         },
         {
             id: "painting_left_2", imagePath: "images/tavla2.jpg",
             position: new THREE.Vector3(-W_half + wallOffsetToCenter, paintingCenterY, D_half * 0.4),
             rotationY: Math.PI / 2, size: { width: paintingWidth, height: paintingHeight }
-            // Inga ledtrådar på denna tavla
         },
         {
             id: "painting_back_center", imagePath: "images/tavla3.jpg",
@@ -88,10 +123,7 @@ function createPaintings(scene, roomInstance) {
             id: "painting_right_1", imagePath: "images/tavla4.jpg",
             position: new THREE.Vector3(W_half - wallOffsetToCenter, paintingCenterY, -D_half * 0.4),
             rotationY: -Math.PI / 2, size: { width: paintingWidth, height: paintingHeight },
-            // EXEMPEL: Definiera en ledtråd för denna tavla
-            clues: [
-                { uv: new THREE.Vector2(0.5, 0.5) } // En ledtråd precis i mitten
-            ]
+            clues: [ { uv: new THREE.Vector2(0.5, 0.5) } ]
         },
         {
             id: "painting_right_2", imagePath: "images/tavla5.jpg",
@@ -117,7 +149,6 @@ function createPaintings(scene, roomInstance) {
         }
         
         const frontMaterial = new THREE.MeshStandardMaterial(frontMaterialProperties);
-
         let paintingGeometry;
         let materialsForMesh;
 
@@ -133,7 +164,6 @@ function createPaintings(scene, roomInstance) {
         const paintingMesh = new THREE.Mesh(paintingGeometry, materialsForMesh);
         paintingMesh.position.copy(data.position);
         paintingMesh.rotation.y = data.rotationY;
-        
         paintingMesh.castShadow = false; 
         paintingMesh.receiveShadow = true;
         paintingMesh.userData = { id: data.id, isPainting: true, isFlat: !!data.isFlat };
@@ -144,38 +174,35 @@ function createPaintings(scene, roomInstance) {
             roomInstance.addPaintingReference({mesh: paintingMesh, data: data });
         }
 
-        // ===== NYTT: SKAPA LEDTRÅDSBELYSNING =====
         if (data.clues && data.clues.length > 0) {
-            paintingMesh.userData.clueLights = []; // Skapa en array för tavlans ledtrådsljus
-
+            paintingMesh.userData.clueLights = [];
             data.clues.forEach(clue => {
-                // Skapa en röd spotlight, initialt avstängd (intensitet 0)
                 const clueLight = new THREE.SpotLight(0xff0000, 0, 2, Math.PI / 16, 0.8, 2);
                 clueLight.castShadow = false;
-
-                // Beräkna ledtrådens 3D-position på tavlans yta
-                const localCluePos = new THREE.Vector3(
-                    (clue.uv.x - 0.5) * data.size.width,
-                    (clue.uv.y - 0.5) * data.size.height,
-                    (paintingDepth / 2) + 0.01 // Lätt framför ytan
-                );
+                const localCluePos = new THREE.Vector3( (clue.uv.x - 0.5) * data.size.width, (clue.uv.y - 0.5) * data.size.height, (paintingDepth / 2) + 0.01 );
                 const worldCluePos = paintingMesh.localToWorld(localCluePos.clone());
                 clueLight.target.position.copy(worldCluePos);
-                
-                // Positionera själva ljuskällan en bit framför tavlan
                 const normal = new THREE.Vector3();
-                paintingMesh.getWorldDirection(normal); // Rikningen tavlan pekar mot
+                paintingMesh.getWorldDirection(normal);
                 clueLight.position.copy(worldCluePos.clone().add(normal.clone().multiplyScalar(-0.4)));
-
                 scene.add(clueLight);
                 scene.add(clueLight.target);
                 paintingMesh.userData.clueLights.push(clueLight);
             });
         }
-        // ===== SLUT PÅ NY KOD =====
     });
+
+    const hilmaPaintingMesh = paintingObjects.find(p => p.userData.id === 'painting_front_center');
+    const hilmaPaintingData = paintingData.find(d => d.id === 'painting_front_center');
+    if (hilmaPaintingMesh && hilmaPaintingData) {
+        createWorldTimer(scene, hilmaPaintingMesh, hilmaPaintingData);
+    }
 }
 
 function getAllPaintingObjects() {
     return paintingObjects;
+}
+
+function getWorldTimerObject() {
+    return worldTimerObject;
 }
