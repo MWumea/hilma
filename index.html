@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VR Kodlås Escape Room</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+    <div id="container">
+        <button id="enterVR" style="display: none;">Starta VR</button>
+        <div id="info">
+            <h1>Hilmas hemliga arv</h1>
+            <p>Du är nu Hilmas betrodda observatör, hennes “öga” i det förseglade galleriet. Din uppgift kräver skarp iakttagelseförmåga. Granska de fem utvalda målningarna med yttersta precision. Varje nyans, varje linje, varje symbol bär på en potentiell pusselbit. Kom ihåg, de ser bara genom dina ord.</p>
+            <p>Tryck på "Starta Galleri" för att börja!</p>
+        </div>
+        <div id="timer" style="display: none;">07:00</div>
+    </div>
+
+    <script src="scripts/paintings.js"></script>
+    <script src="scripts/room.js"></script>
+    <script src="scripts/objects.js"></script>
+    <script src="scripts/main.js"></script>
+</body>
+</html>
