@@ -36,15 +36,17 @@ function createWorldTimer(scene, paintingMesh, paintingData) {
     const paintingSize = paintingData.size;
     timerMesh.position.set(
         paintingPos.x,
-        // JUSTERAD: Sänkt klockan med 20cm för att undvika konflikt med spotlight.
-        paintingPos.y + (paintingSize.height / 2) + 0.15, 
-        paintingPos.z - 0.01 // Pyttelite framför väggen
+        paintingPos.y + (paintingSize.height / 2) + 0.15, // Höjden är 15cm ovanför tavlans kant
+        paintingPos.z + 0.03 // JUSTERAD: Flyttad 3cm framför tavlan
     );
+    // Se till att timern också roterar med tavlan om tavlan skulle ha en annan Y-rotation
+    // (Hilmas porträtt har rotationY: 0, så detta är mest för framtida robusthet)
+    timerMesh.rotation.y = paintingMesh.rotation.y;
     
     scene.add(timerMesh);
     
     // Spara de delar vi behöver för att kunna uppdatera texten senare
-    worldTimerObject = { context, texture, canvas };
+    worldTimerObject = { context, texture, canvas, mesh: timerMesh }; // Lade till mesh här också
 }
 
 
