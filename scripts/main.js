@@ -14,6 +14,8 @@ let targetVelocity = new THREE.Vector3(0, 0, 0);
 let rightStickController = null;
 let leftStickController = null;
 
+let leftStickGrip = null;
+
 const snapTurnAngle = THREE.MathUtils.degToRad(45);
 const snapTurnThreshold = 0.7;
 const snapTurnCooldown = 0.25;
@@ -35,7 +37,7 @@ let lastWidth = 0;
 let lastHeight = 0;
 
 let gameTimerInterval = null;
-const gameDuration = 7 * 60;
+const gameDuration = 5 * 60;
 let timeRemaining = gameDuration;
 let timerElement;
 const revealStartTime = 60;
@@ -52,9 +54,11 @@ let tempScale = new THREE.Vector3();
 const desktopEyeHeight = 1.6;
 const vrBaseHeight = 0.5;
 
-// ===== NYTT: Flagga för att se till att spelet bara startas en gång =====
 let isGameRunning = false;
-// =====================================================================
+
+let magnifyCamera;
+let lensRenderTarget;
+let magnifyingGlass;
 
 function checkXR() {
     const infoElement = document.getElementById('info');
@@ -66,7 +70,6 @@ function checkXR() {
                 vrButton = document.getElementById('enterVR');
                 vrButton.addEventListener('click', startVR);
                 infoElement.innerHTML += '<p>Eller klicka på galleriet för att använda mus/tangentbord.</p>';
-
             } else {
                 infoElement.innerHTML = '<h1>VR stöds inte</h1><p>Din webbläsare stöder inte immersive-vr.</p>';
                 infoElement.innerHTML += '<p>Klicka på galleriet för att använda mus/tangentbord.</p>';
@@ -81,21 +84,18 @@ function checkXR() {
 function init() {
     clock = new THREE.Clock();
     scene = new THREE.Scene();
-
     const textureLoader = new THREE.TextureLoader();
     const skyTexture = textureLoader.load('images/sky_dome_equirectangular.jpg', () => {
         skyTexture.mapping = THREE.EquirectangularReflectionMapping;
         scene.background = skyTexture;
         scene.environment = skyTexture;
     });
-
     camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
     playerRig = new THREE.Group();
     playerRig.position.set(0, desktopEyeHeight, 0);
     playerRig.rotation.y = Math.PI;
     playerRig.add(camera);
     scene.add(playerRig);
-
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -104,21 +104,15 @@ function init() {
     renderer.xr.enabled = true;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
-
     const container = document.getElementById('container');
     container.appendChild(renderer.domElement);
-
     timerElement = document.getElementById('timer');
-
     room = new Room(scene);
     room.create();
-
     createTeleportSystem();
-
     if (room && room.roomSize) {
         roomBoundaries = {
             minX: -room.roomSize.width + wallCollisionBuffer,
@@ -135,22 +129,18 @@ function init() {
             minZ: benchPos.z - benchDim.depth / 2, maxZ: benchPos.z + benchDim.depth / 2,
         };
     }
-
     if (typeof createPaintings === 'function') {
         createPaintings(scene, room);
         if (room && typeof room.setupGalleryLighting === 'function') {
             room.setupGalleryLighting();
         }
     }
-
     if (typeof loadAndPlacePlants === 'function') {
         loadAndPlacePlants(scene, room.roomSize);
     }
-
     if (typeof getWorldTimerObject === 'function') {
         worldTimer = getWorldTimerObject();
     }
-
     setupControllers();
     setupDesktopControls(container);
     window.addEventListener('resize', onWindowResize, false);
@@ -161,122 +151,51 @@ function onMouseMove(event) {
     if (!renderer.xr.isPresenting && document.pointerLockElement === renderer.domElement.parentElement) {
         const movementX = event.movementX || 0;
         const movementY = event.movementY || 0;
-
         playerRig.rotation.y -= movementX * mouseSensitivity;
         camera.rotation.x -= movementY * mouseSensitivity;
-
         camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
     }
 }
 
 function setupDesktopControls(elementToLock) {
     const infoElement = document.getElementById('info');
-
     elementToLock.addEventListener('click', () => {
         if (!renderer.xr.isPresenting && !document.pointerLockElement) {
-            elementToLock.requestPointerLock()
-                .catch(err => {
-                    console.warn("Fel vid begäran om pointer lock:", err);
-                });
+            elementToLock.requestPointerLock().catch(err => { console.warn("Fel vid begäran om pointer lock:", err); });
         }
     });
-
     document.addEventListener('pointerlockchange', () => {
         if (document.pointerLockElement === elementToLock) {
             document.addEventListener('mousemove', onMouseMove, false);
             infoElement.style.display = 'none';
             playerRig.position.y = desktopEyeHeight;
-            // ===== JUSTERAD: Starta spelet om det inte redan körs =====
-            if (!isGameRunning) {
-                startGame();
-            }
-            // =========================================================
+            if (!isGameRunning) { startGame(); }
         } else {
             document.removeEventListener('mousemove', onMouseMove, false);
-            if (!renderer.xr.isPresenting) {
-                infoElement.style.display = 'block';
-            }
+            if (!renderer.xr.isPresenting) { infoElement.style.display = 'block'; }
         }
     }, false);
-
-    document.addEventListener('keydown', (event) => {
-        if (!renderer.xr.isPresenting) {
-            keyStates[event.code] = true;
-        }
-    });
-
-    document.addEventListener('keyup', (event) => {
-        if (!renderer.xr.isPresenting) {
-            keyStates[event.code] = false;
-        }
-    });
+    document.addEventListener('keydown', (event) => { if (!renderer.xr.isPresenting) { keyStates[event.code] = true; } });
+    document.addEventListener('keyup', (event) => { if (!renderer.xr.isPresenting) { keyStates[event.code] = false; } });
 }
 
-function checkBenchCollision(targetPlayerX, targetPlayerZ, pRadius) { /* ... (oförändrad) ... */ if (!benchActualBounds) return false; const playerMinX = targetPlayerX - pRadius; const playerMaxX = targetPlayerX + pRadius; const playerMinZ = targetPlayerZ - pRadius; const playerMaxZ = targetPlayerZ + pRadius; return ( playerMinX < benchActualBounds.maxX && playerMaxX > benchActualBounds.minX && playerMinZ < benchActualBounds.maxZ && playerMaxZ > benchActualBounds.minZ ); }
-function createTeleportSystem() { /* ... (oförändrad) ... */ floorMesh = scene.children.find(obj => obj.geometry && obj.geometry.type === "PlaneGeometry" && obj.rotation.x !== 0); if (!floorMesh) return; const arcMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.8 }); const arcGeometry = new THREE.BufferGeometry(); teleportArc = new THREE.Line(arcGeometry, arcMaterial); teleportArc.visible = false; scene.add(teleportArc); const markerGeometry = new THREE.RingGeometry(0.2, 0.3, 16); const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.8, side: THREE.DoubleSide }); teleportMarker = new THREE.Mesh(markerGeometry, markerMaterial); teleportMarker.rotation.x = -Math.PI / 2; teleportMarker.visible = false; scene.add(teleportMarker); }
-function applySmoothMovement(deltaTime) { /* ... (oförändrad) ... */ currentVelocity.lerp(targetVelocity, 1 - Math.pow(smoothingFactor, deltaTime * 60)); if (currentVelocity.length() > 0.001) { const currentX = playerRig.position.x; const currentZ = playerRig.position.z; let proposedDeltaX = currentVelocity.x * deltaTime; let proposedDeltaZ = currentVelocity.z * deltaTime; if (proposedDeltaX !== 0) { if (checkBenchCollision(currentX + proposedDeltaX, currentZ, playerRadius)) { if (proposedDeltaX > 0) { proposedDeltaX = Math.max(0, benchActualBounds.minX - playerRadius - currentX - 0.01); } else { proposedDeltaX = Math.min(0, benchActualBounds.maxX + playerRadius - currentX + 0.01); } } } let nextX = currentX + proposedDeltaX; if (proposedDeltaZ !== 0) { if (checkBenchCollision(nextX, currentZ + proposedDeltaZ, playerRadius)) { if (proposedDeltaZ > 0) { proposedDeltaZ = Math.max(0, benchActualBounds.minZ - playerRadius - currentZ - 0.01); } else { proposedDeltaZ = Math.min(0, benchActualBounds.maxZ + playerRadius - currentZ + 0.01); } } } let nextZ = currentZ + proposedDeltaZ; nextX = Math.max(roomBoundaries.minX, Math.min(roomBoundaries.maxX, nextX)); nextZ = Math.max(roomBoundaries.minZ, Math.min(roomBoundaries.maxZ, nextZ)); playerRig.position.set(nextX, playerRig.position.y, nextZ); } }
-function calculateTeleportArc(controller) { /* ... (oförändrad) ... */ const points = []; const initialVelocity = 8; const gravity = -9.8; const segments = 30; const timeStep = 0.025; const startPos = controller.getWorldPosition(new THREE.Vector3()); const startDir = controller.getWorldDirection(new THREE.Vector3()).negate().multiplyScalar(initialVelocity); let currentPos = startPos.clone(); let currentVel = startDir.clone(); const raycaster = new THREE.Raycaster(); for (let i = 0; i < segments; i++) { points.push(currentPos.clone()); const nextPos = currentPos.clone().add(currentVel.clone().multiplyScalar(timeStep)); nextPos.y += 0.5 * gravity * timeStep * timeStep; raycaster.set(currentPos, nextPos.clone().sub(currentPos).normalize()); const intersects = raycaster.intersectObject(floorMesh); if (intersects.length > 0 && intersects[0].distance < currentPos.distanceTo(nextPos)) { points.push(intersects[0].point); return { hit: true, point: intersects[0].point, arcPoints: points }; } currentPos.copy(nextPos); currentVel.y += gravity * timeStep; } return { hit: false, point: null, arcPoints: points }; }
-function handleTeleport(controller) { /* ... (oförändrad) ... */ if (!controller || !controller.inputSource || !floorMesh) return; const gamepad = controller.inputSource.gamepad; if (!gamepad || !gamepad.buttons) return; const trigger = gamepad.buttons[0]; const triggerPressed = trigger && trigger.pressed; const triggerJustReleased = !triggerPressed && isTeleporting; if (triggerPressed) { isTeleporting = true; const { hit, point, arcPoints } = calculateTeleportArc(controller); teleportArc.geometry.setFromPoints(arcPoints); teleportArc.geometry.computeBoundingSphere(); teleportArc.visible = true; if (hit && point.x >= roomBoundaries.minX && point.x <= roomBoundaries.maxX && point.z >= roomBoundaries.minZ && point.z <= roomBoundaries.maxZ) { if (checkBenchCollision(point.x, point.z, playerRadius)) { teleportMarker.visible = false; } else { teleportMarker.position.copy(point).add(new THREE.Vector3(0, 0.01, 0)); teleportMarker.visible = true; } } else { teleportMarker.visible = false; } } else if (triggerJustReleased) { if (teleportMarker.visible) { playerRig.position.x = teleportMarker.position.x; playerRig.position.z = teleportMarker.position.z; } teleportArc.visible = false; teleportMarker.visible = false; isTeleporting = false; } }
+function checkBenchCollision(targetPlayerX, targetPlayerZ, pRadius) { if (!benchActualBounds) return false; const playerMinX = targetPlayerX - pRadius; const playerMaxX = targetPlayerX + pRadius; const playerMinZ = targetPlayerZ - pRadius; const playerMaxZ = targetPlayerZ + pRadius; return ( playerMinX < benchActualBounds.maxX && playerMaxX > benchActualBounds.minX && playerMinZ < benchActualBounds.maxZ && playerMaxZ > benchActualBounds.minZ ); }
+function createTeleportSystem() { floorMesh = scene.children.find(obj => obj.geometry && obj.geometry.type === "PlaneGeometry" && obj.rotation.x !== 0); if (!floorMesh) return; const arcMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.8 }); const arcGeometry = new THREE.BufferGeometry(); teleportArc = new THREE.Line(arcGeometry, arcMaterial); teleportArc.visible = false; scene.add(teleportArc); const markerGeometry = new THREE.RingGeometry(0.2, 0.3, 16); const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.8, side: THREE.DoubleSide }); teleportMarker = new THREE.Mesh(markerGeometry, markerMaterial); teleportMarker.rotation.x = -Math.PI / 2; teleportMarker.visible = false; scene.add(teleportMarker); }
+function applySmoothMovement(deltaTime) { currentVelocity.lerp(targetVelocity, 1 - Math.pow(smoothingFactor, deltaTime * 60)); if (currentVelocity.length() > 0.001) { const currentX = playerRig.position.x; const currentZ = playerRig.position.z; let proposedDeltaX = currentVelocity.x * deltaTime; let proposedDeltaZ = currentVelocity.z * deltaTime; if (proposedDeltaX !== 0) { if (checkBenchCollision(currentX + proposedDeltaX, currentZ, playerRadius)) { if (proposedDeltaX > 0) { proposedDeltaX = Math.max(0, benchActualBounds.minX - playerRadius - currentX - 0.01); } else { proposedDeltaX = Math.min(0, benchActualBounds.maxX + playerRadius - currentX + 0.01); } } } let nextX = currentX + proposedDeltaX; if (proposedDeltaZ !== 0) { if (checkBenchCollision(nextX, currentZ + proposedDeltaZ, playerRadius)) { if (proposedDeltaZ > 0) { proposedDeltaZ = Math.max(0, benchActualBounds.minZ - playerRadius - currentZ - 0.01); } else { proposedDeltaZ = Math.min(0, benchActualBounds.maxZ + playerRadius - currentZ + 0.01); } } } let nextZ = currentZ + proposedDeltaZ; nextX = Math.max(roomBoundaries.minX, Math.min(roomBoundaries.maxX, nextX)); nextZ = Math.max(roomBoundaries.minZ, Math.min(roomBoundaries.maxZ, nextZ)); playerRig.position.set(nextX, playerRig.position.y, nextZ); } }
+function calculateTeleportArc(controller) { const points = []; const initialVelocity = 8; const gravity = -9.8; const segments = 30; const timeStep = 0.025; const startPos = controller.getWorldPosition(new THREE.Vector3()); const startDir = controller.getWorldDirection(new THREE.Vector3()).negate().multiplyScalar(initialVelocity); let currentPos = startPos.clone(); let currentVel = startDir.clone(); const raycaster = new THREE.Raycaster(); for (let i = 0; i < segments; i++) { points.push(currentPos.clone()); const nextPos = currentPos.clone().add(currentVel.clone().multiplyScalar(timeStep)); nextPos.y += 0.5 * gravity * timeStep * timeStep; raycaster.set(currentPos, nextPos.clone().sub(currentPos).normalize()); const intersects = raycaster.intersectObject(floorMesh); if (intersects.length > 0 && intersects[0].distance < currentPos.distanceTo(nextPos)) { points.push(intersects[0].point); return { hit: true, point: intersects[0].point, arcPoints: points }; } currentPos.copy(nextPos); currentVel.y += gravity * timeStep; } return { hit: false, point: null, arcPoints: points }; }
+function handleTeleport(controller) { if (!controller || !controller.inputSource || !floorMesh) return; const gamepad = controller.inputSource.gamepad; if (!gamepad || !gamepad.buttons) return; const trigger = gamepad.buttons[0]; const triggerPressed = trigger && trigger.pressed; const triggerJustReleased = !triggerPressed && isTeleporting; if (triggerPressed) { isTeleporting = true; const { hit, point, arcPoints } = calculateTeleportArc(controller); teleportArc.geometry.setFromPoints(arcPoints); teleportArc.geometry.computeBoundingSphere(); teleportArc.visible = true; if (hit && point.x >= roomBoundaries.minX && point.x <= roomBoundaries.maxX && point.z >= roomBoundaries.minZ && point.z <= roomBoundaries.maxZ) { if (checkBenchCollision(point.x, point.z, playerRadius)) { teleportMarker.visible = false; } else { teleportMarker.position.copy(point).add(new THREE.Vector3(0, 0.01, 0)); teleportMarker.visible = true; } } else { teleportMarker.visible = false; } } else if (triggerJustReleased) { if (teleportMarker.visible) { playerRig.position.x = teleportMarker.position.x; playerRig.position.z = teleportMarker.position.z; } teleportArc.visible = false; teleportMarker.visible = false; isTeleporting = false; } }
 
-function startGame() {
-    // ===== JUSTERAD: Se till att vi inte startar spelet flera gånger =====
-    if (isGameRunning) return;
-    isGameRunning = true;
-    // ===================================================================
-
-    timeRemaining = gameDuration;
-    if (gameTimerInterval) clearInterval(gameTimerInterval);
-
-    timerElement.style.display = 'block';
-    gameTimerInterval = setInterval(updateTimer, 1000);
-    updateTimer(); // Anropa direkt för att rendera första tiden
-}
-
-function updateWorldTimerDisplay(minutes, seconds) {
-    if (!worldTimer || !worldTimer.context) return;
-
-    const { context, texture, canvas } = worldTimer;
-    const text = `${minutes}:${seconds}`;
-
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    context.font = 'bold 90px Arial';
-    context.fillStyle = 'red';
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText(text, canvas.width / 2, canvas.height / 2);
-    texture.needsUpdate = true;
-}
-
-function updateTimer() {
-    if (timeRemaining > 0) {
-        timeRemaining--;
-    } else {
-        clearInterval(gameTimerInterval);
-    }
-
-    const minutes = Math.floor(timeRemaining / 60).toString().padStart(2, '0');
-    const seconds = (timeRemaining % 60).toString().padStart(2, '0');
-
-    timerElement.innerText = `${minutes}:${seconds}`;
-    updateWorldTimerDisplay(minutes, seconds);
-
-    updateClueLights();
-}
-
-function updateClueLights() { /* ... (oförändrad) ... */ let intensity = 0; if (timeRemaining <= revealStartTime) { const progress = 1.0 - (timeRemaining / revealStartTime); intensity = clueLightMaxIntensity * progress; } const paintings = getAllPaintingObjects(); paintings.forEach(painting => { if (painting.userData.clueLights) { painting.userData.clueLights.forEach(light => { light.intensity = intensity; }); } }); }
+function startGame() { if (isGameRunning) return; isGameRunning = true; timeRemaining = gameDuration; if (gameTimerInterval) clearInterval(gameTimerInterval); timerElement.style.display = 'block'; gameTimerInterval = setInterval(updateTimer, 1000); updateTimer(); }
+function updateWorldTimerDisplay(minutes, seconds) { if (!worldTimer || !worldTimer.context) return; const { context, texture, canvas } = worldTimer; const text = `${minutes}:${seconds}`; context.clearRect(0, 0, canvas.width, canvas.height); context.font = 'bold 90px Arial'; context.fillStyle = 'red'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillText(text, canvas.width / 2, canvas.height / 2); texture.needsUpdate = true; }
+function updateTimer() { if (timeRemaining > 0) { timeRemaining--; } else { clearInterval(gameTimerInterval); } const minutes = Math.floor(timeRemaining / 60).toString().padStart(2, '0'); const seconds = (timeRemaining % 60).toString().padStart(2, '0'); timerElement.innerText = `${minutes}:${seconds}`; updateWorldTimerDisplay(minutes, seconds); updateClueLights(); }
+function updateClueLights() { let intensity = 0; if (timeRemaining <= revealStartTime) { const progress = 1.0 - (timeRemaining / revealStartTime); intensity = clueLightMaxIntensity * progress; } const paintings = getAllPaintingObjects(); paintings.forEach(painting => { if (painting.userData.clueLights) { painting.userData.clueLights.forEach(light => { light.intensity = intensity; }); } }); }
 
 function startVR() {
     const infoElement = document.getElementById('info');
     infoElement.style.display = 'none';
     document.getElementById('enterVR').style.display = 'none';
-
-    if (document.pointerLockElement) {
-        document.exitPointerLock();
-    }
-
-    navigator.xr.requestSession('immersive-vr', {
-        optionalFeatures: ['local-floor', 'bounded-floor', 'hand-tracking']
-    }).then(session => {
+    if (document.pointerLockElement) { document.exitPointerLock(); }
+    navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] }).then(session => {
         playerRig.position.y = vrBaseHeight;
         renderer.xr.setSession(session);
         session.addEventListener('end', onSessionEnded);
@@ -296,55 +215,127 @@ function onSessionEnded() {
     isTeleporting = false;
     if (teleportArc) teleportArc.visible = false;
     if (teleportMarker) teleportMarker.visible = false;
-
     if (gameTimerInterval) clearInterval(gameTimerInterval);
     timerElement.style.display = 'none';
-    
     playerRig.position.y = desktopEyeHeight;
-    
-    // ===== JUSTERAD: Återställ spelet så man kan spela igen =====
     isGameRunning = false;
     timeRemaining = gameDuration;
     updateClueLights();
-    // Nollställ texten på 3D-timern
     updateWorldTimerDisplay('00', '00');
-    // ============================================================
 }
 
-function setupControllers() { /* ... (oförändrad) ... */ function onControllerConnected(event) { const controller = this; const xrInputSource = event.data; if (!xrInputSource) return; controller.inputSource = xrInputSource; if (xrInputSource.handedness === 'right') rightStickController = controller; else if (xrInputSource.handedness === 'left') leftStickController = controller; } controller1 = renderer.xr.getController(0); controller1.addEventListener('selectstart', onSelectStart); controller1.addEventListener('connected', onControllerConnected); playerRig.add(controller1); controller2 = renderer.xr.getController(1); controller2.addEventListener('selectstart', onSelectStart); controller2.addEventListener('connected', onControllerConnected); playerRig.add(controller2); const pointerGeometry = new THREE.BoxGeometry(0.005, 0.005, 0.2); const pointerMaterial = new THREE.MeshBasicMaterial({ color: 0x88ccff, transparent: true, opacity: 0.4 }); [controller1, controller2].forEach(c => { const pointer = new THREE.Mesh(pointerGeometry, pointerMaterial.clone()); pointer.position.set(0, 0, -0.1); c.add(pointer); }); const controllerGrip1 = renderer.xr.getControllerGrip(0); controllerGrip1.add(createControllerModel()); playerRig.add(controllerGrip1); const controllerGrip2 = renderer.xr.getControllerGrip(1); controllerGrip2.add(createControllerModel()); playerRig.add(controllerGrip2); }
-function createControllerModel() { /* ... (oförändrad) ... */ const geometry = new THREE.CylinderGeometry(0.02, 0.025, 0.18, 12); const material = new THREE.MeshStandardMaterial({ color: 0x404040, roughness: 0.3, metalness: 0.4 }); const mesh = new THREE.Mesh(geometry, material); mesh.rotation.x = -Math.PI / 2; return mesh; }
-function onSelectStart(event) {}
-function onWindowResize() { /* ... (oförändrad) ... */ if (camera && renderer) { const currentWidth = window.innerWidth; const currentHeight = window.innerHeight; if (currentWidth !== lastWidth || currentHeight !== lastHeight) { camera.aspect = currentWidth / currentHeight; camera.updateProjectionMatrix(); renderer.setSize(currentWidth, currentHeight); lastWidth = currentWidth; lastHeight = currentHeight; } } }
+function setupControllers() {
+    const gltfLoader = new THREE.GLTFLoader();
 
+    // Inställningar för förstoringsglaset
+    magnifyingGlass = new THREE.Group();
+    // Justera position (x, y, z) och rotation (x, y, z) för förstoringsglaset här.
+    // y-värdet höjer/sänker, z-värdet för det närmare/längre bort från handen.
+    magnifyingGlass.position.set(0, 0, -0.08);
+    // x-rotationen justerar lutningen framåt/bakåt.
+    magnifyingGlass.rotation.x = THREE.MathUtils.degToRad(-92.5);
+    // z-rotationen "rullar" glaset, 0 är rakt.
+    magnifyingGlass.rotation.z = 0;
+
+    // Bygger ihop förstoringsglasets delar
+    const ringGeometry = new THREE.TorusGeometry(0.06, 0.01, 16, 32);
+    const ringMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.1 });
+    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+    magnifyingGlass.add(ringMesh);
+    const renderTargetSize = 1024;
+    lensRenderTarget = new THREE.WebGLRenderTarget(renderTargetSize, renderTargetSize);
+    const lensMaterial = new THREE.MeshBasicMaterial({ map: lensRenderTarget.texture });
+    const lensGeometry = new THREE.CircleGeometry(0.05, 32);
+    const lensMesh = new THREE.Mesh(lensGeometry, lensMaterial);
+    lensMesh.name = "lens";
+    magnifyingGlass.add(lensMesh);
+    const handleGeometry = new THREE.CylinderGeometry(0.008, 0.008, 0.12, 8);
+    const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x3a2d21, roughness: 0.7, metalness: 0.0 });
+    const handleMesh = new THREE.Mesh(handleGeometry, handleMaterial);
+    handleMesh.position.y = -0.12;
+    magnifyingGlass.add(handleMesh);
+    magnifyCamera = new THREE.PerspectiveCamera(15, 1, 0.01, 100);
+    scene.add(magnifyCamera);
+
+    function onControllerConnected(event) {
+        const controller = this;
+        const grip = (controller === controller1) ? renderer.xr.getControllerGrip(0) : renderer.xr.getControllerGrip(1);
+        const xrInputSource = event.data;
+        if (!xrInputSource) return;
+        while(grip.children.length > 0) grip.remove(grip.children[0]);
+        while(controller.children.length > 0) controller.remove(controller[0]);
+        controller.inputSource = xrInputSource;
+
+        if (xrInputSource.handedness === 'right') {
+            rightStickController = controller;
+            gltfLoader.load('models/quest3_controller_right.glb',
+                function (gltf) {
+                    const sceneRoot = gltf.scene;
+                    
+                    // Återställer den stabila metoden: hitta det inre objektet som ska roteras.
+                    // Detta undviker grafikkonflikten.
+                    const modelToOrient = sceneRoot.getObjectByName('Object_2');
+
+                    if (modelToOrient) {
+                        // Applicera den slutgiltiga, korrekta rotationen på det inre objektet.
+                        modelToOrient.rotation.x = Math.PI - THREE.MathUtils.degToRad(45);
+                        modelToOrient.rotation.z = Math.PI;
+                    } else {
+                        // Fallback om modellen har en enklare struktur i framtiden.
+                        sceneRoot.rotation.x = Math.PI - THREE.MathUtils.degToRad(45);
+                        sceneRoot.rotation.z = Math.PI;
+                    }
+                    
+                    // Lägg till hela den yttre scen-gruppen i greppet.
+                    grip.add(sceneRoot);
+                },
+                undefined,
+                function (error) {
+                    console.error('Ett fel uppstod vid laddning av Quest 3-kontrollermodellen', error);
+                }
+            );
+        } else if (xrInputSource.handedness === 'left') {
+            leftStickController = controller;
+            leftStickGrip = grip;
+            grip.add(magnifyingGlass);
+        }
+    }
+
+    controller1 = renderer.xr.getController(0);
+    controller1.addEventListener('connected', onControllerConnected);
+    playerRig.add(controller1);
+    controller2 = renderer.xr.getController(1);
+    controller2.addEventListener('connected', onControllerConnected);
+    playerRig.add(controller2);
+    const controllerGrip1 = renderer.xr.getControllerGrip(0);
+    playerRig.add(controllerGrip1);
+    const controllerGrip2 = renderer.xr.getControllerGrip(1);
+    playerRig.add(controllerGrip2);
+}
+
+function onSelectStart(event) {}
+function onWindowResize() { if (camera && renderer) { const currentWidth = window.innerWidth; const currentHeight = window.innerHeight; if (currentWidth !== lastWidth || currentHeight !== lastHeight) { camera.aspect = currentWidth / currentHeight; camera.updateProjectionMatrix(); renderer.setSize(currentWidth, currentHeight); lastWidth = currentWidth; lastHeight = currentHeight; } } }
+
+// Ersätt hela din nuvarande animate-funktion med denna:
 function animate() {
+    if (!renderer) return;
     const deltaTime = Math.min(clock.getDelta(), 0.1);
     const now = clock.getElapsedTime();
-    
     targetVelocity.set(0, 0, 0);
 
-    if (!renderer.xr.isPresenting) { // Desktop mode
+    if (!renderer.xr.isPresenting) {
         const forwardDirection = new THREE.Vector3();
         camera.getWorldDirection(forwardDirection);
         forwardDirection.y = 0;
         forwardDirection.normalize();
-
         const rightDirection = new THREE.Vector3();
         playerRig.matrixWorld.decompose(tempPosition, tempQuaternion, tempScale);
-        rightDirection.set(1, 0, 0).applyQuaternion(tempQuaternion).normalize();
-
-        if (keyStates['KeyW'] || keyStates['ArrowUp']) {
-            targetVelocity.add(forwardDirection.clone().multiplyScalar(movementSpeed));
-        }
-        if (keyStates['KeyS'] || keyStates['ArrowDown']) {
-            targetVelocity.add(forwardDirection.clone().multiplyScalar(-movementSpeed));
-        }
-        if (keyStates['KeyA'] || keyStates['ArrowLeft']) {
-            targetVelocity.add(rightDirection.clone().multiplyScalar(-movementSpeed));
-        }
-        if (keyStates['KeyD'] || keyStates['ArrowRight']) {
-            targetVelocity.add(rightDirection.clone().multiplyScalar(movementSpeed));
-        }
-    } else { // VR mode
+        rightDirection.set(1, 0, 0).applyQuaternion(tempQuaternion);
+        if (keyStates['KeyW'] || keyStates['ArrowUp']) { targetVelocity.add(forwardDirection.clone().multiplyScalar(movementSpeed)); }
+        if (keyStates['KeyS'] || keyStates['ArrowDown']) { targetVelocity.add(forwardDirection.clone().multiplyScalar(-movementSpeed)); }
+        if (keyStates['KeyA'] || keyStates['ArrowLeft']) { targetVelocity.add(rightDirection.clone().multiplyScalar(-movementSpeed)); }
+        if (keyStates['KeyD'] || keyStates['ArrowRight']) { targetVelocity.add(rightDirection.clone().multiplyScalar(movementSpeed)); }
+    } else {
         if (rightStickController && rightStickController.inputSource && rightStickController.inputSource.gamepad && !isTeleporting) {
             const gamepad = rightStickController.inputSource.gamepad;
             const axes = gamepad.axes;
@@ -367,7 +358,6 @@ function animate() {
                 }
             }
         }
-
         if (leftStickController && leftStickController.inputSource && leftStickController.inputSource.gamepad) {
             const gamepad = leftStickController.inputSource.gamepad;
             const axes = gamepad.axes;
@@ -375,19 +365,11 @@ function animate() {
                 const deadZoneSnapStick = 0.3;
                 const turnValueSnap = axes[2] || 0;
                 if (Math.abs(turnValueSnap) < deadZoneSnapStick) leftStickWasCentered = true;
-                
                 if (leftStickWasCentered && (now > lastSnapTurnTime + snapTurnCooldown)) {
                     let rotationApplied = false;
                     let angleToApply = 0;
-
-                    if (turnValueSnap > snapTurnThreshold) {
-                        angleToApply = -snapTurnAngle;
-                        rotationApplied = true;
-                    } else if (turnValueSnap < -snapTurnThreshold) {
-                        angleToApply = snapTurnAngle;
-                        rotationApplied = true;
-                    }
-
+                    if (turnValueSnap > snapTurnThreshold) { angleToApply = -snapTurnAngle; rotationApplied = true; }
+                    else if (turnValueSnap < -snapTurnThreshold) { angleToApply = snapTurnAngle; rotationApplied = true; }
                     if (rotationApplied) {
                         const cameraWorldPosOld = new THREE.Vector3();
                         camera.getWorldPosition(cameraWorldPosOld);
@@ -407,12 +389,47 @@ function animate() {
         }
         if (rightStickController) handleTeleport(rightStickController);
     }
-    
     applySmoothMovement(deltaTime);
+
+    if (renderer.xr.isPresenting && leftStickGrip && magnifyCamera && lensRenderTarget) {
+        magnifyingGlass.visible = false;
+        const xrEnabled = renderer.xr.enabled;
+        renderer.xr.enabled = false;
+        playerRig.updateMatrixWorld(true);
+
+        const controllerPosition = new THREE.Vector3();
+        const playerEyePosition = new THREE.Vector3();
+        leftStickGrip.getWorldPosition(controllerPosition);
+        camera.getWorldPosition(playerEyePosition);
+        magnifyCamera.position.set(
+            controllerPosition.x,
+            playerEyePosition.y,
+            controllerPosition.z
+        );
+        
+        // --- HÄR ÄR ÄNDRINGEN ---
+        // Hämta handens rotation
+        const gripQuaternion = new THREE.Quaternion();
+        leftStickGrip.getWorldQuaternion(gripQuaternion);
+
+        // Skapa en korrigerande rotation som lutar kameran 90 grader nedåt från
+        // handkontrollens "upp"-riktning, så att den istället pekar "framåt".
+        const correctionQuaternion = new THREE.Quaternion();
+        correctionQuaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(-90));
+
+        // Applicera först handens rotation, och multiplicera sedan med vår korrigering.
+        magnifyCamera.quaternion.copy(gripQuaternion).multiply(correctionQuaternion);
+        // --- SLUT PÅ ÄNDRING ---
+        
+        renderer.setRenderTarget(lensRenderTarget);
+        renderer.render(scene, magnifyCamera);
+        renderer.setRenderTarget(null);
+        renderer.xr.enabled = xrEnabled;
+        magnifyingGlass.visible = true;
+    }
+    
     renderer.render(scene, camera);
 }
 
-window.onload = function() {
-    checkXR();
-    init();
-};
+init();
+checkXR();
