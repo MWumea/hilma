@@ -30,7 +30,6 @@ let benchActualBounds = null;
 
 let teleportArc;
 let teleportMarker;
-// Vi byter ut 'isTeleporting' mot en variabel som håller reda på vilken kontroll som är aktiv.
 let activeTeleportController = null;
 let floorMesh;
 
@@ -71,12 +70,10 @@ function checkXR() {
                 vrButton = document.getElementById('enterVR');
                 vrButton.addEventListener('click', startVR);
             } else {
-                // Texten om mus/tangentbord är nu borttagen.
                 infoElement.innerHTML = '<h1>VR stöds inte</h1><p>Din webbläsare stöder inte immersive-vr. Vänligen använd en kompatibel enhet och webbläsare.</p>';
             }
         });
     } else {
-        // Texten om mus/tangentbord är nu borttagen.
         infoElement.innerHTML = '<h1>WebXR stöds inte</h1><p>Din webbläsare saknar WebXR-funktioner. Vänligen använd en kompatibel webbläsare som stöder WebXR.</p>';
     }
 }
@@ -184,63 +181,40 @@ function createTeleportSystem() { floorMesh = scene.children.find(obj => obj.geo
 function applySmoothMovement(deltaTime) { currentVelocity.lerp(targetVelocity, 1 - Math.pow(smoothingFactor, deltaTime * 60)); if (currentVelocity.length() > 0.001) { const currentX = playerRig.position.x; const currentZ = playerRig.position.z; let proposedDeltaX = currentVelocity.x * deltaTime; let proposedDeltaZ = currentVelocity.z * deltaTime; if (proposedDeltaX !== 0) { if (checkBenchCollision(currentX + proposedDeltaX, currentZ, playerRadius)) { if (proposedDeltaX > 0) { proposedDeltaX = Math.max(0, benchActualBounds.minX - playerRadius - currentX - 0.01); } else { proposedDeltaX = Math.min(0, benchActualBounds.maxX + playerRadius - currentX + 0.01); } } } let nextX = currentX + proposedDeltaX; if (proposedDeltaZ !== 0) { if (checkBenchCollision(nextX, currentZ + proposedDeltaZ, playerRadius)) { if (proposedDeltaZ > 0) { proposedDeltaZ = Math.max(0, benchActualBounds.minZ - playerRadius - currentZ - 0.01); } else { proposedDeltaZ = Math.min(0, benchActualBounds.maxZ + playerRadius - currentZ + 0.01); } } } let nextZ = currentZ + proposedDeltaZ; nextX = Math.max(roomBoundaries.minX, Math.min(roomBoundaries.maxX, nextX)); nextZ = Math.max(roomBoundaries.minZ, Math.min(roomBoundaries.maxZ, nextZ)); playerRig.position.set(nextX, playerRig.position.y, nextZ); } }
 function calculateTeleportArc(controller) { const points = []; const initialVelocity = 8; const gravity = -9.8; const segments = 30; const timeStep = 0.025; const startPos = controller.getWorldPosition(new THREE.Vector3()); const startDir = controller.getWorldDirection(new THREE.Vector3()).negate().multiplyScalar(initialVelocity); let currentPos = startPos.clone(); let currentVel = startDir.clone(); const raycaster = new THREE.Raycaster(); for (let i = 0; i < segments; i++) { points.push(currentPos.clone()); const nextPos = currentPos.clone().add(currentVel.clone().multiplyScalar(timeStep)); nextPos.y += 0.5 * gravity * timeStep * timeStep; raycaster.set(currentPos, nextPos.clone().sub(currentPos).normalize()); const intersects = raycaster.intersectObject(floorMesh); if (intersects.length > 0 && intersects[0].distance < currentPos.distanceTo(nextPos)) { points.push(intersects[0].point); return { hit: true, point: intersects[0].point, arcPoints: points }; } currentPos.copy(nextPos); currentVel.y += gravity * timeStep; } return { hit: false, point: null, arcPoints: points }; }
 
-// Ny funktion som hanterar input från båda kontrollerna
+// --- KORRIGERING 1: Återställd styrning ---
+// Vi tar bort säkerhetsspärren som var för aggressiv.
 function handleTeleportation() {
-    // Om en teleportering redan är påbörjad, fortsätt processa den.
     if (activeTeleportController) {
         processTeleportAction(activeTeleportController);
         return;
     }
 
-    // Annars, lyssna efter en ny teleporterings-start på valfri kontroll.
-    // Vi kollar bara om rörelse-input INTE ges på respektive kontroll.
-    const controllersToCheck = [];
-    if (controller1 && controller1.inputSource) {
-        const gamepad = controller1.inputSource.gamepad;
-        // Kolla om vänster spak (för rotation) är i neutralläge
-        if (gamepad && (!gamepad.axes || Math.abs(gamepad.axes[2]) < 0.3)) {
-             controllersToCheck.push(controller1);
-        }
-    }
-     if (controller2 && controller2.inputSource) {
-        const gamepad = controller2.inputSource.gamepad;
-        // Kolla om höger spak (för rörelse) är i neutralläge
-        if (gamepad && (!gamepad.axes || (Math.abs(gamepad.axes[2]) < 0.15 && Math.abs(gamepad.axes[3]) < 0.15))) {
-            controllersToCheck.push(controller2);
-        }
-    }
-
+    const controllersToCheck = [controller1, controller2].filter(c => c && c.inputSource);
 
     for (const controller of controllersToCheck) {
         const gamepad = controller.inputSource.gamepad;
         if (gamepad && gamepad.buttons) {
             const trigger = gamepad.buttons[0];
             if (trigger && trigger.pressed) {
-                // En trigger har tryckts! Sätt denna kontroll som aktiv och börja processa.
                 activeTeleportController = controller;
                 processTeleportAction(controller);
-                break; // Avbryt loopen, vi har hittat vår aktiva kontroll.
+                break;
             }
         }
     }
 }
 
-// Denna funktion innehåller den gamla logiken, men är nu generell.
 function processTeleportAction(controller) {
     if (!controller || !controller.inputSource || !floorMesh) return;
     const gamepad = controller.inputSource.gamepad;
     if (!gamepad || !gamepad.buttons) return;
-
     const trigger = gamepad.buttons[0];
     const triggerPressed = trigger && trigger.pressed;
-
-    // Om triggern fortfarande är nedtryckt...
     if (triggerPressed) {
         const { hit, point, arcPoints } = calculateTeleportArc(controller);
         teleportArc.geometry.setFromPoints(arcPoints);
         teleportArc.geometry.computeBoundingSphere();
         teleportArc.visible = true;
-
         if (hit && point.x >= roomBoundaries.minX && point.x <= roomBoundaries.maxX && point.z >= roomBoundaries.minZ && point.z <= roomBoundaries.maxZ) {
             if (checkBenchCollision(point.x, point.z, playerRadius)) {
                 teleportMarker.visible = false;
@@ -251,14 +225,13 @@ function processTeleportAction(controller) {
         } else {
             teleportMarker.visible = false;
         }
-    } else { // Annars, om triggern har släppts...
+    } else {
         if (teleportMarker.visible) {
             playerRig.position.x = teleportMarker.position.x;
             playerRig.position.z = teleportMarker.position.z;
         }
         teleportArc.visible = false;
         teleportMarker.visible = false;
-        // Nollställ den aktiva kontrollen så att systemet är redo för en ny teleportering.
         activeTeleportController = null;
     }
 }
@@ -304,18 +277,10 @@ function onSessionEnded() {
 
 function setupControllers() {
     const gltfLoader = new THREE.GLTFLoader();
-
-    // Inställningar för förstoringsglaset
     magnifyingGlass = new THREE.Group();
-    // Justera position (x, y, z) och rotation (x, y, z) för förstoringsglaset här.
-    // y-värdet höjer/sänker, z-värdet för det närmare/längre bort från handen.
     magnifyingGlass.position.set(0, 0, -0.08);
-    // x-rotationen justerar lutningen framåt/bakåt.
     magnifyingGlass.rotation.x = THREE.MathUtils.degToRad(-92.5);
-    // z-rotationen "rullar" glaset, 0 är rakt.
     magnifyingGlass.rotation.z = 0;
-
-    // Bygger ihop förstoringsglasets delar
     const ringGeometry = new THREE.TorusGeometry(0.06, 0.01, 16, 32);
     const ringMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.1 });
     const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
@@ -332,7 +297,8 @@ function setupControllers() {
     const handleMesh = new THREE.Mesh(handleGeometry, handleMaterial);
     handleMesh.position.y = -0.12;
     magnifyingGlass.add(handleMesh);
-    magnifyCamera = new THREE.PerspectiveCamera(15, 1, 0.01, 100);
+    // Vi sänker första värdet (FOV) från 15 till 10 för att öka förstoringen.
+    magnifyCamera = new THREE.PerspectiveCamera(10, 1, 0.01, 100);
     scene.add(magnifyCamera);
 
     function onControllerConnected(event) {
@@ -349,22 +315,14 @@ function setupControllers() {
             gltfLoader.load('models/quest3_controller_right.glb',
                 function (gltf) {
                     const sceneRoot = gltf.scene;
-                    
-                    // Återställer den stabila metoden: hitta det inre objektet som ska roteras.
-                    // Detta undviker grafikkonflikten.
                     const modelToOrient = sceneRoot.getObjectByName('Object_2');
-
                     if (modelToOrient) {
-                        // Applicera den slutgiltiga, korrekta rotationen på det inre objektet.
                         modelToOrient.rotation.x = Math.PI - THREE.MathUtils.degToRad(45);
                         modelToOrient.rotation.z = Math.PI;
                     } else {
-                        // Fallback om modellen har en enklare struktur i framtiden.
                         sceneRoot.rotation.x = Math.PI - THREE.MathUtils.degToRad(45);
                         sceneRoot.rotation.z = Math.PI;
                     }
-                    
-                    // Lägg till hela den yttre scen-gruppen i greppet.
                     grip.add(sceneRoot);
                 },
                 undefined,
@@ -394,7 +352,6 @@ function setupControllers() {
 function onSelectStart(event) {}
 function onWindowResize() { if (camera && renderer) { const currentWidth = window.innerWidth; const currentHeight = window.innerHeight; if (currentWidth !== lastWidth || currentHeight !== lastHeight) { camera.aspect = currentWidth / currentHeight; camera.updateProjectionMatrix(); renderer.setSize(currentWidth, currentHeight); lastWidth = currentWidth; lastHeight = currentHeight; } } }
 
-// Ersätt hela din nuvarande animate-funktion med denna:
 function animate() {
     if (!renderer) return;
     const deltaTime = Math.min(clock.getDelta(), 0.1);
@@ -414,7 +371,8 @@ function animate() {
         if (keyStates['KeyA'] || keyStates['ArrowLeft']) { targetVelocity.add(rightDirection.clone().multiplyScalar(-movementSpeed)); }
         if (keyStates['KeyD'] || keyStates['ArrowRight']) { targetVelocity.add(rightDirection.clone().multiplyScalar(movementSpeed)); }
     } else {
-        if (rightStickController && rightStickController.inputSource && rightStickController.inputSource.gamepad && !activeTeleportController) {
+        // Rörelselogik körs bara om ingen teleportering är aktiv
+        if (!activeTeleportController && rightStickController && rightStickController.inputSource && rightStickController.inputSource.gamepad) {
             const gamepad = rightStickController.inputSource.gamepad;
             const axes = gamepad.axes;
             if (axes && axes.length >= 4) {
@@ -452,7 +410,7 @@ function animate() {
                         const cameraWorldPosOld = new THREE.Vector3();
                         camera.getWorldPosition(cameraWorldPosOld);
                         playerRig.rotation.y += angleToApply;
-                        playerRig.updateMatrixWorld(true); 
+                        playerRig.updateMatrixWorld(true);
                         const cameraWorldPosNew = new THREE.Vector3();
                         camera.getWorldPosition(cameraWorldPosNew);
                         const deltaX = cameraWorldPosNew.x - cameraWorldPosOld.x;
@@ -465,7 +423,6 @@ function animate() {
                 }
             }
         }
-        // Anropa vår nya, generella funktion för teleportering
         handleTeleportation();
     }
     applySmoothMovement(deltaTime);
@@ -485,21 +442,18 @@ function animate() {
             playerEyePosition.y,
             controllerPosition.z
         );
-        
-        // --- HÄR ÄR ÄNDRINGEN ---
-        // Hämta handens rotation
+
+        // --- KORRIGERING 2: Återställd och justerad kameravinkel ---
+        // Vi går tillbaka till att styra kameran med handen, men justerar vinkeln.
         const gripQuaternion = new THREE.Quaternion();
         leftStickGrip.getWorldQuaternion(gripQuaternion);
 
-        // Skapa en korrigerande rotation som lutar kameran 90 grader nedåt från
-        // handkontrollens "upp"-riktning, så att den istället pekar "framåt".
         const correctionQuaternion = new THREE.Quaternion();
-        correctionQuaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(-90));
-
-        // Applicera först handens rotation, och multiplicera sedan med vår korrigering.
-        magnifyCamera.quaternion.copy(gripQuaternion).multiply(correctionQuaternion);
-        // --- SLUT PÅ ÄNDRING ---
+        // Vi provar -80 grader istället för -90 för att lyfta blicken något.
+        correctionQuaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(-80));
         
+        magnifyCamera.quaternion.copy(gripQuaternion).multiply(correctionQuaternion);
+
         renderer.setRenderTarget(lensRenderTarget);
         renderer.render(scene, magnifyCamera);
         renderer.setRenderTarget(null);
