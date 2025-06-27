@@ -277,27 +277,63 @@ function setupControllers() {
     magnifyingGlass.position.set(0, 0, -0.08);
     magnifyingGlass.rotation.x = THREE.MathUtils.degToRad(-92.5);
     magnifyingGlass.rotation.z = 0;
-    const ringGeometry = new THREE.TorusGeometry(0.06, 0.01, 16, 32);
-    const ringMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.1 });
-    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
-    magnifyingGlass.add(ringMesh);
     
-    // Upplösning för linsen
+    const ringMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.1 });
+    
+    const frameShape = new THREE.Shape();
+    const frameWidth = 0.015;
+    const frameHeight = 0.01;
+    frameShape.moveTo(-frameWidth / 2, -frameHeight / 2);
+    frameShape.lineTo(frameWidth / 2, -frameHeight / 2);
+    frameShape.lineTo(frameWidth / 2, frameHeight / 2);
+    frameShape.lineTo(-frameWidth / 2, frameHeight / 2);
+    frameShape.lineTo(-frameWidth / 2, -frameHeight / 2);
+    
+    const points = [];
+    const radius = 0.06;
+    const divisions = 64;
+    for (let i = 0; i < divisions; i++) {
+        const angle = (i / divisions) * Math.PI * 2;
+        points.push(new THREE.Vector3(Math.cos(angle) * radius, 0, Math.sin(angle) * radius));
+    }
+    const extrude_path = new THREE.CatmullRomCurve3(points);
+    extrude_path.closed = true;
+    
+    const extrudeSettings = {
+        steps: 128,
+        bevelEnabled: false,
+        extrudePath: extrude_path
+    };
+    
+    const ringGeometry = new THREE.ExtrudeGeometry(frameShape, extrudeSettings);
+    const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
+    
+    ringMesh.rotation.x = Math.PI / 2;
+    
+    magnifyingGlass.add(ringMesh);
+
     const renderTargetSize = 2048;
     lensRenderTarget = new THREE.WebGLRenderTarget(renderTargetSize, renderTargetSize);
 
     const lensMaterial = new THREE.MeshBasicMaterial({ map: lensRenderTarget.texture });
-    const lensGeometry = new THREE.CircleGeometry(0.05, 32);
+    
+    // HÄR ÄR DEN SISTA KORRIGERINGEN
+    // Kalibrerad radie för att helt täcka glipan, baserat på visuell feedback.
+    const lensRadius = 0.055;
+    const lensGeometry = new THREE.CircleGeometry(lensRadius, 64);
+    
     const lensMesh = new THREE.Mesh(lensGeometry, lensMaterial);
     lensMesh.name = "lens";
+    // Rotera geometrin 180 grader så att "framsidan" pekar i rätt riktning för lookAt().
+    lensMesh.rotation.y = Math.PI; 
     magnifyingGlass.add(lensMesh);
+
     const handleGeometry = new THREE.CylinderGeometry(0.008, 0.008, 0.12, 8);
     const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x3a2d21, roughness: 0.7, metalness: 0.0 });
     const handleMesh = new THREE.Mesh(handleGeometry, handleMaterial);
     handleMesh.position.y = -0.12;
     magnifyingGlass.add(handleMesh);
 
-    // FOV för linsen, lägre värde = mer zoom
     magnifyCamera = new THREE.PerspectiveCamera(7, 1, 0.01, 100);
     scene.add(magnifyCamera);
 
@@ -427,32 +463,42 @@ function animate() {
     applySmoothMovement(deltaTime);
 
     if (renderer.xr.isPresenting && leftStickGrip && magnifyCamera && lensRenderTarget) {
+        
+        // --- Steg 1: Rendera vyn till texturen (samma som tidigare, men nu med korrekt "upp") ---
         magnifyingGlass.visible = false;
         const xrEnabled = renderer.xr.enabled;
         renderer.xr.enabled = false;
         
-        // --- NY LOGIK FÖR ATT KORRIGERA PARALLAXFEL ---
         const playerEyePosition = new THREE.Vector3();
         const lensCenterPosition = new THREE.Vector3();
+        const mainCameraUp = new THREE.Vector3();
+        const mainCameraQuaternion = new THREE.Quaternion();
 
-        // 1. Hämta världspositionen för spelarens öga (huvudkameran)
         camera.getWorldPosition(playerEyePosition);
-        
-        // 2. Hämta världspositionen för förstoringsglasets mittpunkt
         magnifyingGlass.getWorldPosition(lensCenterPosition);
-        
-        // 3. Placera förstoringsglasets kamera vid spelarens öga
+        camera.getWorldQuaternion(mainCameraQuaternion);
+        mainCameraUp.set(0, 1, 0).applyQuaternion(mainCameraQuaternion);
+
         magnifyCamera.position.copy(playerEyePosition);
-        
-        // 4. Rikta kameran från ögat så att den tittar rakt igenom linsens mittpunkt
+        magnifyCamera.up.copy(mainCameraUp);
         magnifyCamera.lookAt(lensCenterPosition);
-        // --- SLUT PÅ NY LOGIK ---
 
         renderer.setRenderTarget(lensRenderTarget);
         renderer.render(scene, magnifyCamera);
         renderer.setRenderTarget(null);
         renderer.xr.enabled = xrEnabled;
         magnifyingGlass.visible = true;
+
+        // --- Steg 2: Hitta linsytan och tvinga den att titta på spelaren ---
+        const lensMesh = magnifyingGlass.getObjectByName('lens');
+        if (lensMesh) {
+            // Sätt linsens "upp" till samma som kamerans "upp" för att förhindra att den rullar.
+            lensMesh.up.copy(mainCameraUp);
+
+            // Tvinga linsen att alltid titta på spelarens kamera.
+            // Detta motverkar rotationen från handkontrollen.
+            lensMesh.lookAt(playerEyePosition);
+        }
     }
     
     renderer.render(scene, camera);
