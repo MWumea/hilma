@@ -30,7 +30,8 @@ let benchActualBounds = null;
 
 let teleportArc;
 let teleportMarker;
-let isTeleporting = false;
+// Vi byter ut 'isTeleporting' mot en variabel som håller reda på vilken kontroll som är aktiv.
+let activeTeleportController = null;
 let floorMesh;
 
 let lastWidth = 0;
@@ -69,15 +70,14 @@ function checkXR() {
                 document.getElementById('enterVR').style.display = 'block';
                 vrButton = document.getElementById('enterVR');
                 vrButton.addEventListener('click', startVR);
-                infoElement.innerHTML += '<p>Eller klicka på galleriet för att använda mus/tangentbord.</p>';
             } else {
-                infoElement.innerHTML = '<h1>VR stöds inte</h1><p>Din webbläsare stöder inte immersive-vr.</p>';
-                infoElement.innerHTML += '<p>Klicka på galleriet för att använda mus/tangentbord.</p>';
+                // Texten om mus/tangentbord är nu borttagen.
+                infoElement.innerHTML = '<h1>VR stöds inte</h1><p>Din webbläsare stöder inte immersive-vr. Vänligen använd en kompatibel enhet och webbläsare.</p>';
             }
         });
     } else {
-        infoElement.innerHTML = '<h1>WebXR stöds inte</h1><p>Din webbläsare saknar WebXR-funktioner.</p>';
-        infoElement.innerHTML += '<p>Klicka på galleriet för att använda mus/tangentbord.</p>';
+        // Texten om mus/tangentbord är nu borttagen.
+        infoElement.innerHTML = '<h1>WebXR stöds inte</h1><p>Din webbläsare saknar WebXR-funktioner. Vänligen använd en kompatibel webbläsare som stöder WebXR.</p>';
     }
 }
 
@@ -183,7 +183,85 @@ function checkBenchCollision(targetPlayerX, targetPlayerZ, pRadius) { if (!bench
 function createTeleportSystem() { floorMesh = scene.children.find(obj => obj.geometry && obj.geometry.type === "PlaneGeometry" && obj.rotation.x !== 0); if (!floorMesh) return; const arcMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.8 }); const arcGeometry = new THREE.BufferGeometry(); teleportArc = new THREE.Line(arcGeometry, arcMaterial); teleportArc.visible = false; scene.add(teleportArc); const markerGeometry = new THREE.RingGeometry(0.2, 0.3, 16); const markerMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, transparent: true, opacity: 0.8, side: THREE.DoubleSide }); teleportMarker = new THREE.Mesh(markerGeometry, markerMaterial); teleportMarker.rotation.x = -Math.PI / 2; teleportMarker.visible = false; scene.add(teleportMarker); }
 function applySmoothMovement(deltaTime) { currentVelocity.lerp(targetVelocity, 1 - Math.pow(smoothingFactor, deltaTime * 60)); if (currentVelocity.length() > 0.001) { const currentX = playerRig.position.x; const currentZ = playerRig.position.z; let proposedDeltaX = currentVelocity.x * deltaTime; let proposedDeltaZ = currentVelocity.z * deltaTime; if (proposedDeltaX !== 0) { if (checkBenchCollision(currentX + proposedDeltaX, currentZ, playerRadius)) { if (proposedDeltaX > 0) { proposedDeltaX = Math.max(0, benchActualBounds.minX - playerRadius - currentX - 0.01); } else { proposedDeltaX = Math.min(0, benchActualBounds.maxX + playerRadius - currentX + 0.01); } } } let nextX = currentX + proposedDeltaX; if (proposedDeltaZ !== 0) { if (checkBenchCollision(nextX, currentZ + proposedDeltaZ, playerRadius)) { if (proposedDeltaZ > 0) { proposedDeltaZ = Math.max(0, benchActualBounds.minZ - playerRadius - currentZ - 0.01); } else { proposedDeltaZ = Math.min(0, benchActualBounds.maxZ + playerRadius - currentZ + 0.01); } } } let nextZ = currentZ + proposedDeltaZ; nextX = Math.max(roomBoundaries.minX, Math.min(roomBoundaries.maxX, nextX)); nextZ = Math.max(roomBoundaries.minZ, Math.min(roomBoundaries.maxZ, nextZ)); playerRig.position.set(nextX, playerRig.position.y, nextZ); } }
 function calculateTeleportArc(controller) { const points = []; const initialVelocity = 8; const gravity = -9.8; const segments = 30; const timeStep = 0.025; const startPos = controller.getWorldPosition(new THREE.Vector3()); const startDir = controller.getWorldDirection(new THREE.Vector3()).negate().multiplyScalar(initialVelocity); let currentPos = startPos.clone(); let currentVel = startDir.clone(); const raycaster = new THREE.Raycaster(); for (let i = 0; i < segments; i++) { points.push(currentPos.clone()); const nextPos = currentPos.clone().add(currentVel.clone().multiplyScalar(timeStep)); nextPos.y += 0.5 * gravity * timeStep * timeStep; raycaster.set(currentPos, nextPos.clone().sub(currentPos).normalize()); const intersects = raycaster.intersectObject(floorMesh); if (intersects.length > 0 && intersects[0].distance < currentPos.distanceTo(nextPos)) { points.push(intersects[0].point); return { hit: true, point: intersects[0].point, arcPoints: points }; } currentPos.copy(nextPos); currentVel.y += gravity * timeStep; } return { hit: false, point: null, arcPoints: points }; }
-function handleTeleport(controller) { if (!controller || !controller.inputSource || !floorMesh) return; const gamepad = controller.inputSource.gamepad; if (!gamepad || !gamepad.buttons) return; const trigger = gamepad.buttons[0]; const triggerPressed = trigger && trigger.pressed; const triggerJustReleased = !triggerPressed && isTeleporting; if (triggerPressed) { isTeleporting = true; const { hit, point, arcPoints } = calculateTeleportArc(controller); teleportArc.geometry.setFromPoints(arcPoints); teleportArc.geometry.computeBoundingSphere(); teleportArc.visible = true; if (hit && point.x >= roomBoundaries.minX && point.x <= roomBoundaries.maxX && point.z >= roomBoundaries.minZ && point.z <= roomBoundaries.maxZ) { if (checkBenchCollision(point.x, point.z, playerRadius)) { teleportMarker.visible = false; } else { teleportMarker.position.copy(point).add(new THREE.Vector3(0, 0.01, 0)); teleportMarker.visible = true; } } else { teleportMarker.visible = false; } } else if (triggerJustReleased) { if (teleportMarker.visible) { playerRig.position.x = teleportMarker.position.x; playerRig.position.z = teleportMarker.position.z; } teleportArc.visible = false; teleportMarker.visible = false; isTeleporting = false; } }
+
+// Ny funktion som hanterar input från båda kontrollerna
+function handleTeleportation() {
+    // Om en teleportering redan är påbörjad, fortsätt processa den.
+    if (activeTeleportController) {
+        processTeleportAction(activeTeleportController);
+        return;
+    }
+
+    // Annars, lyssna efter en ny teleporterings-start på valfri kontroll.
+    // Vi kollar bara om rörelse-input INTE ges på respektive kontroll.
+    const controllersToCheck = [];
+    if (controller1 && controller1.inputSource) {
+        const gamepad = controller1.inputSource.gamepad;
+        // Kolla om vänster spak (för rotation) är i neutralläge
+        if (gamepad && (!gamepad.axes || Math.abs(gamepad.axes[2]) < 0.3)) {
+             controllersToCheck.push(controller1);
+        }
+    }
+     if (controller2 && controller2.inputSource) {
+        const gamepad = controller2.inputSource.gamepad;
+        // Kolla om höger spak (för rörelse) är i neutralläge
+        if (gamepad && (!gamepad.axes || (Math.abs(gamepad.axes[2]) < 0.15 && Math.abs(gamepad.axes[3]) < 0.15))) {
+            controllersToCheck.push(controller2);
+        }
+    }
+
+
+    for (const controller of controllersToCheck) {
+        const gamepad = controller.inputSource.gamepad;
+        if (gamepad && gamepad.buttons) {
+            const trigger = gamepad.buttons[0];
+            if (trigger && trigger.pressed) {
+                // En trigger har tryckts! Sätt denna kontroll som aktiv och börja processa.
+                activeTeleportController = controller;
+                processTeleportAction(controller);
+                break; // Avbryt loopen, vi har hittat vår aktiva kontroll.
+            }
+        }
+    }
+}
+
+// Denna funktion innehåller den gamla logiken, men är nu generell.
+function processTeleportAction(controller) {
+    if (!controller || !controller.inputSource || !floorMesh) return;
+    const gamepad = controller.inputSource.gamepad;
+    if (!gamepad || !gamepad.buttons) return;
+
+    const trigger = gamepad.buttons[0];
+    const triggerPressed = trigger && trigger.pressed;
+
+    // Om triggern fortfarande är nedtryckt...
+    if (triggerPressed) {
+        const { hit, point, arcPoints } = calculateTeleportArc(controller);
+        teleportArc.geometry.setFromPoints(arcPoints);
+        teleportArc.geometry.computeBoundingSphere();
+        teleportArc.visible = true;
+
+        if (hit && point.x >= roomBoundaries.minX && point.x <= roomBoundaries.maxX && point.z >= roomBoundaries.minZ && point.z <= roomBoundaries.maxZ) {
+            if (checkBenchCollision(point.x, point.z, playerRadius)) {
+                teleportMarker.visible = false;
+            } else {
+                teleportMarker.position.copy(point).add(new THREE.Vector3(0, 0.01, 0));
+                teleportMarker.visible = true;
+            }
+        } else {
+            teleportMarker.visible = false;
+        }
+    } else { // Annars, om triggern har släppts...
+        if (teleportMarker.visible) {
+            playerRig.position.x = teleportMarker.position.x;
+            playerRig.position.z = teleportMarker.position.z;
+        }
+        teleportArc.visible = false;
+        teleportMarker.visible = false;
+        // Nollställ den aktiva kontrollen så att systemet är redo för en ny teleportering.
+        activeTeleportController = null;
+    }
+}
 
 function startGame() { if (isGameRunning) return; isGameRunning = true; timeRemaining = gameDuration; if (gameTimerInterval) clearInterval(gameTimerInterval); timerElement.style.display = 'block'; gameTimerInterval = setInterval(updateTimer, 1000); updateTimer(); }
 function updateWorldTimerDisplay(minutes, seconds) { if (!worldTimer || !worldTimer.context) return; const { context, texture, canvas } = worldTimer; const text = `${minutes}:${seconds}`; context.clearRect(0, 0, canvas.width, canvas.height); context.font = 'bold 90px Arial'; context.fillStyle = 'red'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillText(text, canvas.width / 2, canvas.height / 2); texture.needsUpdate = true; }
@@ -212,7 +290,7 @@ function onSessionEnded() {
     document.getElementById('info').style.display = 'block';
     document.getElementById('enterVR').style.display = 'block';
     rightStickController = null; leftStickController = null;
-    isTeleporting = false;
+    activeTeleportController = null;
     if (teleportArc) teleportArc.visible = false;
     if (teleportMarker) teleportMarker.visible = false;
     if (gameTimerInterval) clearInterval(gameTimerInterval);
@@ -336,7 +414,7 @@ function animate() {
         if (keyStates['KeyA'] || keyStates['ArrowLeft']) { targetVelocity.add(rightDirection.clone().multiplyScalar(-movementSpeed)); }
         if (keyStates['KeyD'] || keyStates['ArrowRight']) { targetVelocity.add(rightDirection.clone().multiplyScalar(movementSpeed)); }
     } else {
-        if (rightStickController && rightStickController.inputSource && rightStickController.inputSource.gamepad && !isTeleporting) {
+        if (rightStickController && rightStickController.inputSource && rightStickController.inputSource.gamepad && !activeTeleportController) {
             const gamepad = rightStickController.inputSource.gamepad;
             const axes = gamepad.axes;
             if (axes && axes.length >= 4) {
@@ -387,7 +465,8 @@ function animate() {
                 }
             }
         }
-        if (rightStickController) handleTeleport(rightStickController);
+        // Anropa vår nya, generella funktion för teleportering
+        handleTeleportation();
     }
     applySmoothMovement(deltaTime);
 
