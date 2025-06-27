@@ -242,11 +242,38 @@ function startVR() {
     infoElement.style.display = 'none';
     document.getElementById('enterVR').style.display = 'none';
     if (document.pointerLockElement) { document.exitPointerLock(); }
-    navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] }).then(session => {
+    
+    navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] }).then(async (session) => {
         playerRig.position.y = vrBaseHeight;
-        renderer.xr.setSession(session);
+
+        // --- START PÅ KORRIGERING ---
+        // Steg 1: Låt Three.js renderingshanterare (WebXRManager) ta kontroll över sessionen FÖRST.
+        // Detta är avgörande för att undvika att applikationen hänger sig.
+        await renderer.xr.setSession(session);
+
+        // Steg 2: NU när Three.js är korrekt ansluten kan vi säkert ändra renderingsupplösningen.
+        if (XRWebGLLayer.getNativeFramebufferScaleFactor) {
+            const gl = renderer.getContext();
+            const nativeScaleFactor = XRWebGLLayer.getNativeFramebufferScaleFactor(session);
+            
+            console.log(`Native (Quest 3) Framebuffer Scale Factor: ${nativeScaleFactor}`);
+            
+            // Uppdatera renderings-tillståndet för att använda native upplösning.
+            await session.updateRenderState({
+                baseLayer: new XRWebGLLayer(session, gl, {
+                    framebufferScaleFactor: nativeScaleFactor
+                })
+            });
+            console.log("VR-sessionen har uppdaterats för att rendera i native-upplösning.");
+        } else {
+            console.warn("Funktionen för att hämta native upplösning (getNativeFramebufferScaleFactor) stöds inte. Använder standardinställningar.");
+        }
+        // --- SLUT PÅ KORRIGERING ---
+
+        // Steg 3: Sätt upp resten av sessionslogiken.
         session.addEventListener('end', onSessionEnded);
         startGame();
+
     }).catch(err => {
         console.warn("VR session request failed or was cancelled:", err);
         infoElement.style.display = 'block';
@@ -317,14 +344,11 @@ function setupControllers() {
 
     const lensMaterial = new THREE.MeshBasicMaterial({ map: lensRenderTarget.texture });
     
-    // HÄR ÄR DEN SISTA KORRIGERINGEN
-    // Kalibrerad radie för att helt täcka glipan, baserat på visuell feedback.
     const lensRadius = 0.055;
     const lensGeometry = new THREE.CircleGeometry(lensRadius, 64);
     
     const lensMesh = new THREE.Mesh(lensGeometry, lensMaterial);
     lensMesh.name = "lens";
-    // Rotera geometrin 180 grader så att "framsidan" pekar i rätt riktning för lookAt().
     lensMesh.rotation.y = Math.PI; 
     magnifyingGlass.add(lensMesh);
 
@@ -464,7 +488,6 @@ function animate() {
 
     if (renderer.xr.isPresenting && leftStickGrip && magnifyCamera && lensRenderTarget) {
         
-        // --- Steg 1: Rendera vyn till texturen (samma som tidigare, men nu med korrekt "upp") ---
         magnifyingGlass.visible = false;
         const xrEnabled = renderer.xr.enabled;
         renderer.xr.enabled = false;
@@ -489,14 +512,9 @@ function animate() {
         renderer.xr.enabled = xrEnabled;
         magnifyingGlass.visible = true;
 
-        // --- Steg 2: Hitta linsytan och tvinga den att titta på spelaren ---
         const lensMesh = magnifyingGlass.getObjectByName('lens');
         if (lensMesh) {
-            // Sätt linsens "upp" till samma som kamerans "upp" för att förhindra att den rullar.
             lensMesh.up.copy(mainCameraUp);
-
-            // Tvinga linsen att alltid titta på spelarens kamera.
-            // Detta motverkar rotationen från handkontrollen.
             lensMesh.lookAt(playerEyePosition);
         }
     }
