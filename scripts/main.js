@@ -181,16 +181,12 @@ function createTeleportSystem() { floorMesh = scene.children.find(obj => obj.geo
 function applySmoothMovement(deltaTime) { currentVelocity.lerp(targetVelocity, 1 - Math.pow(smoothingFactor, deltaTime * 60)); if (currentVelocity.length() > 0.001) { const currentX = playerRig.position.x; const currentZ = playerRig.position.z; let proposedDeltaX = currentVelocity.x * deltaTime; let proposedDeltaZ = currentVelocity.z * deltaTime; if (proposedDeltaX !== 0) { if (checkBenchCollision(currentX + proposedDeltaX, currentZ, playerRadius)) { if (proposedDeltaX > 0) { proposedDeltaX = Math.max(0, benchActualBounds.minX - playerRadius - currentX - 0.01); } else { proposedDeltaX = Math.min(0, benchActualBounds.maxX + playerRadius - currentX + 0.01); } } } let nextX = currentX + proposedDeltaX; if (proposedDeltaZ !== 0) { if (checkBenchCollision(nextX, currentZ + proposedDeltaZ, playerRadius)) { if (proposedDeltaZ > 0) { proposedDeltaZ = Math.max(0, benchActualBounds.minZ - playerRadius - currentZ - 0.01); } else { proposedDeltaZ = Math.min(0, benchActualBounds.maxZ + playerRadius - currentZ + 0.01); } } } let nextZ = currentZ + proposedDeltaZ; nextX = Math.max(roomBoundaries.minX, Math.min(roomBoundaries.maxX, nextX)); nextZ = Math.max(roomBoundaries.minZ, Math.min(roomBoundaries.maxZ, nextZ)); playerRig.position.set(nextX, playerRig.position.y, nextZ); } }
 function calculateTeleportArc(controller) { const points = []; const initialVelocity = 8; const gravity = -9.8; const segments = 30; const timeStep = 0.025; const startPos = controller.getWorldPosition(new THREE.Vector3()); const startDir = controller.getWorldDirection(new THREE.Vector3()).negate().multiplyScalar(initialVelocity); let currentPos = startPos.clone(); let currentVel = startDir.clone(); const raycaster = new THREE.Raycaster(); for (let i = 0; i < segments; i++) { points.push(currentPos.clone()); const nextPos = currentPos.clone().add(currentVel.clone().multiplyScalar(timeStep)); nextPos.y += 0.5 * gravity * timeStep * timeStep; raycaster.set(currentPos, nextPos.clone().sub(currentPos).normalize()); const intersects = raycaster.intersectObject(floorMesh); if (intersects.length > 0 && intersects[0].distance < currentPos.distanceTo(nextPos)) { points.push(intersects[0].point); return { hit: true, point: intersects[0].point, arcPoints: points }; } currentPos.copy(nextPos); currentVel.y += gravity * timeStep; } return { hit: false, point: null, arcPoints: points }; }
 
-// --- KORRIGERING 1: Återställd styrning ---
-// Vi tar bort säkerhetsspärren som var för aggressiv.
 function handleTeleportation() {
     if (activeTeleportController) {
         processTeleportAction(activeTeleportController);
         return;
     }
-
     const controllersToCheck = [controller1, controller2].filter(c => c && c.inputSource);
-
     for (const controller of controllersToCheck) {
         const gamepad = controller.inputSource.gamepad;
         if (gamepad && gamepad.buttons) {
@@ -285,8 +281,11 @@ function setupControllers() {
     const ringMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.1 });
     const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
     magnifyingGlass.add(ringMesh);
-    const renderTargetSize = 1024;
+    
+    // Upplösning för linsen
+    const renderTargetSize = 2048;
     lensRenderTarget = new THREE.WebGLRenderTarget(renderTargetSize, renderTargetSize);
+
     const lensMaterial = new THREE.MeshBasicMaterial({ map: lensRenderTarget.texture });
     const lensGeometry = new THREE.CircleGeometry(0.05, 32);
     const lensMesh = new THREE.Mesh(lensGeometry, lensMaterial);
@@ -297,8 +296,9 @@ function setupControllers() {
     const handleMesh = new THREE.Mesh(handleGeometry, handleMaterial);
     handleMesh.position.y = -0.12;
     magnifyingGlass.add(handleMesh);
-    // Vi sänker första värdet (FOV) från 15 till 10 för att öka förstoringen.
-    magnifyCamera = new THREE.PerspectiveCamera(10, 1, 0.01, 100);
+
+    // FOV för linsen, lägre värde = mer zoom
+    magnifyCamera = new THREE.PerspectiveCamera(7, 1, 0.01, 100);
     scene.add(magnifyCamera);
 
     function onControllerConnected(event) {
@@ -371,7 +371,6 @@ function animate() {
         if (keyStates['KeyA'] || keyStates['ArrowLeft']) { targetVelocity.add(rightDirection.clone().multiplyScalar(-movementSpeed)); }
         if (keyStates['KeyD'] || keyStates['ArrowRight']) { targetVelocity.add(rightDirection.clone().multiplyScalar(movementSpeed)); }
     } else {
-        // Rörelselogik körs bara om ingen teleportering är aktiv
         if (!activeTeleportController && rightStickController && rightStickController.inputSource && rightStickController.inputSource.gamepad) {
             const gamepad = rightStickController.inputSource.gamepad;
             const axes = gamepad.axes;
@@ -431,28 +430,23 @@ function animate() {
         magnifyingGlass.visible = false;
         const xrEnabled = renderer.xr.enabled;
         renderer.xr.enabled = false;
-        playerRig.updateMatrixWorld(true);
-
-        const controllerPosition = new THREE.Vector3();
-        const playerEyePosition = new THREE.Vector3();
-        leftStickGrip.getWorldPosition(controllerPosition);
-        camera.getWorldPosition(playerEyePosition);
-        magnifyCamera.position.set(
-            controllerPosition.x,
-            playerEyePosition.y,
-            controllerPosition.z
-        );
-
-        // --- KORRIGERING 2: Återställd och justerad kameravinkel ---
-        // Vi går tillbaka till att styra kameran med handen, men justerar vinkeln.
-        const gripQuaternion = new THREE.Quaternion();
-        leftStickGrip.getWorldQuaternion(gripQuaternion);
-
-        const correctionQuaternion = new THREE.Quaternion();
-        // Vi provar -80 grader istället för -90 för att lyfta blicken något.
-        correctionQuaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), THREE.MathUtils.degToRad(-80));
         
-        magnifyCamera.quaternion.copy(gripQuaternion).multiply(correctionQuaternion);
+        // --- NY LOGIK FÖR ATT KORRIGERA PARALLAXFEL ---
+        const playerEyePosition = new THREE.Vector3();
+        const lensCenterPosition = new THREE.Vector3();
+
+        // 1. Hämta världspositionen för spelarens öga (huvudkameran)
+        camera.getWorldPosition(playerEyePosition);
+        
+        // 2. Hämta världspositionen för förstoringsglasets mittpunkt
+        magnifyingGlass.getWorldPosition(lensCenterPosition);
+        
+        // 3. Placera förstoringsglasets kamera vid spelarens öga
+        magnifyCamera.position.copy(playerEyePosition);
+        
+        // 4. Rikta kameran från ögat så att den tittar rakt igenom linsens mittpunkt
+        magnifyCamera.lookAt(lensCenterPosition);
+        // --- SLUT PÅ NY LOGIK ---
 
         renderer.setRenderTarget(lensRenderTarget);
         renderer.render(scene, magnifyCamera);
