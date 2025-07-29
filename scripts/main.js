@@ -13,7 +13,7 @@ const smoothingFactor = 0.92;
 // Värden anges i meter (0.01 = 1 cm).
 // Negativa värden flyttar siktet åt vänster/nedåt.
 const lensHorizontalOffset = -0.007; // Justerar i sidled
-const lensVerticalOffset = +0.002;   // Justerar i höjdled
+const lensVerticalOffset = 0.002;   // Justerar i höjdled
 
 let currentVelocity = new THREE.Vector3(0, 0, 0);
 let targetVelocity = new THREE.Vector3(0, 0, 0);
