@@ -60,6 +60,10 @@ let magnifyCamera;
 let lensRenderTarget;
 let magnifyingGlass;
 
+let isHintModeActive = false;
+// ÄNDRA HÄR för den slutgiltiga tiden (t.ex. 120 sekunder för 2 minuter)
+const hintActivationTime = 6; // Sekunder innan hjälpfunktionen aktiveras
+
 function checkXR() {
     const infoElement = document.getElementById('info');
     if ('xr' in navigator) {
@@ -234,7 +238,23 @@ function processTeleportAction(controller) {
 
 function startGame() { if (isGameRunning) return; isGameRunning = true; timeRemaining = gameDuration; if (gameTimerInterval) clearInterval(gameTimerInterval); timerElement.style.display = 'block'; gameTimerInterval = setInterval(updateTimer, 1000); updateTimer(); }
 function updateWorldTimerDisplay(minutes, seconds) { if (!worldTimer || !worldTimer.context) return; const { context, texture, canvas } = worldTimer; const text = `${minutes}:${seconds}`; context.clearRect(0, 0, canvas.width, canvas.height); context.font = 'bold 90px Arial'; context.fillStyle = 'red'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillText(text, canvas.width / 2, canvas.height / 2); texture.needsUpdate = true; }
-function updateTimer() { if (timeRemaining > 0) { timeRemaining--; } else { clearInterval(gameTimerInterval); } const minutes = Math.floor(timeRemaining / 60).toString().padStart(2, '0'); const seconds = (timeRemaining % 60).toString().padStart(2, '0'); timerElement.innerText = `${minutes}:${seconds}`; updateWorldTimerDisplay(minutes, seconds); updateClueLights(); }
+function updateTimer() {
+    if (timeRemaining > 0) {
+        timeRemaining--;
+    } else {
+        clearInterval(gameTimerInterval);
+    }
+    const minutes = Math.floor(timeRemaining / 60).toString().padStart(2, '0');
+    const seconds = (timeRemaining % 60).toString().padStart(2, '0');
+    timerElement.innerText = `${minutes}:${seconds}`;
+    updateWorldTimerDisplay(minutes, seconds);
+    updateClueLights();
+
+    if (!isHintModeActive && isGameRunning && (gameDuration - timeRemaining) >= hintActivationTime) {
+        isHintModeActive = true;
+        console.log(`HINT MODE AKTIVERAT efter ${hintActivationTime} sekunder.`);
+    }
+}
 function updateClueLights() { let intensity = 0; if (timeRemaining <= revealStartTime) { const progress = 1.0 - (timeRemaining / revealStartTime); intensity = clueLightMaxIntensity * progress; } const paintings = getAllPaintingObjects(); paintings.forEach(painting => { if (painting.userData.clueLights) { painting.userData.clueLights.forEach(light => { light.intensity = intensity; }); } }); }
 
 function startVR() {
@@ -246,19 +266,14 @@ function startVR() {
     navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] }).then(async (session) => {
         playerRig.position.y = vrBaseHeight;
 
-        // --- START PÅ KORRIGERING ---
-        // Steg 1: Låt Three.js renderingshanterare (WebXRManager) ta kontroll över sessionen FÖRST.
-        // Detta är avgörande för att undvika att applikationen hänger sig.
         await renderer.xr.setSession(session);
 
-        // Steg 2: NU när Three.js är korrekt ansluten kan vi säkert ändra renderingsupplösningen.
         if (XRWebGLLayer.getNativeFramebufferScaleFactor) {
             const gl = renderer.getContext();
             const nativeScaleFactor = XRWebGLLayer.getNativeFramebufferScaleFactor(session);
             
             console.log(`Native (Quest 3) Framebuffer Scale Factor: ${nativeScaleFactor}`);
             
-            // Uppdatera renderings-tillståndet för att använda native upplösning.
             await session.updateRenderState({
                 baseLayer: new XRWebGLLayer(session, gl, {
                     framebufferScaleFactor: nativeScaleFactor
@@ -268,9 +283,7 @@ function startVR() {
         } else {
             console.warn("Funktionen för att hämta native upplösning (getNativeFramebufferScaleFactor) stöds inte. Använder standardinställningar.");
         }
-        // --- SLUT PÅ KORRIGERING ---
 
-        // Steg 3: Sätt upp resten av sessionslogiken.
         session.addEventListener('end', onSessionEnded);
         startGame();
 
@@ -488,10 +501,32 @@ function animate() {
 
     if (renderer.xr.isPresenting && leftStickGrip && magnifyCamera && lensRenderTarget) {
         
+        // --- START PÅ REVIDERAD KOD ---
+        // Spara rendererarens nuvarande inställningar
+        const originalToneMapping = renderer.toneMapping;
+
+        // Stäng av tone mapping för att få starkare, oförändrade färger i linsen
+        renderer.toneMapping = THREE.NoToneMapping;
+        
         magnifyingGlass.visible = false;
         const xrEnabled = renderer.xr.enabled;
         renderer.xr.enabled = false;
         
+        // Byt till hint-texturer (samma logik som förut)
+        if (isHintModeActive) {
+            const paintings = getAllPaintingObjects();
+            const textures = getPaintingTextures();
+            paintings.forEach(p => {
+                if (textures.hints[p.userData.id]) {
+                    const material = p.userData.isFlat ? p.material : p.material[4];
+                    if (material) {
+                        material.map = textures.hints[p.userData.id];
+                        material.needsUpdate = true;
+                    }
+                }
+            });
+        }
+
         const playerEyePosition = new THREE.Vector3();
         const lensCenterPosition = new THREE.Vector3();
         const mainCameraUp = new THREE.Vector3();
@@ -506,11 +541,31 @@ function animate() {
         magnifyCamera.up.copy(mainCameraUp);
         magnifyCamera.lookAt(lensCenterPosition);
 
+        // Rendera scenen till förstoringsglasets textur med de nya inställningarna
         renderer.setRenderTarget(lensRenderTarget);
         renderer.render(scene, magnifyCamera);
         renderer.setRenderTarget(null);
+
+        // Återställ rendererarens ursprungliga inställningar
+        renderer.toneMapping = originalToneMapping;
         renderer.xr.enabled = xrEnabled;
         magnifyingGlass.visible = true;
+        
+        // Byt tillbaka till originaltexturer (samma logik som förut)
+        if (isHintModeActive) {
+            const paintings = getAllPaintingObjects();
+            const textures = getPaintingTextures();
+            paintings.forEach(p => {
+                if (textures.hints[p.userData.id]) {
+                    const material = p.userData.isFlat ? p.material : p.material[4];
+                    if (material) {
+                        material.map = textures.originals[p.userData.id];
+                        material.needsUpdate = true;
+                    }
+                }
+            });
+        }
+        // --- SLUT PÅ REVIDERAD KOD ---
 
         const lensMesh = magnifyingGlass.getObjectByName('lens');
         if (lensMesh) {
