@@ -9,6 +9,12 @@ let clock;
 const movementSpeed = 1.5;
 const smoothingFactor = 0.92;
 
+// Justera dessa små värden för att finjustera siktet i förstoringsglaset.
+// Värden anges i meter (0.01 = 1 cm).
+// Negativa värden flyttar siktet åt vänster/nedåt.
+const lensHorizontalOffset = -0.007; // Justerar i sidled
+const lensVerticalOffset = +0.002;   // Justerar i höjdled
+
 let currentVelocity = new THREE.Vector3(0, 0, 0);
 let targetVelocity = new THREE.Vector3(0, 0, 0);
 let rightStickController = null;
@@ -532,37 +538,46 @@ function animate() {
         }
 
         const playerEyePosition = new THREE.Vector3();
-        const lensCenterPosition = new THREE.Vector3();
-        const mainCameraUp = new THREE.Vector3();
-        const mainCameraQuaternion = new THREE.Quaternion();
-
         camera.getWorldPosition(playerEyePosition);
+
+        const lensCenterPosition = new THREE.Vector3();
         magnifyingGlass.getWorldPosition(lensCenterPosition);
-        camera.getWorldQuaternion(mainCameraQuaternion);
-        mainCameraUp.set(0, 1, 0).applyQuaternion(mainCameraQuaternion);
-
+        
+        const rightVec = new THREE.Vector3();
+        const upVec = new THREE.Vector3();
+        const forwardVec = new THREE.Vector3();
+        magnifyingGlass.matrixWorld.extractBasis(rightVec, upVec, forwardVec);
+        
+        const adjustedTarget = new THREE.Vector3();
+        adjustedTarget.copy(lensCenterPosition);
+        adjustedTarget.addScaledVector(rightVec, lensHorizontalOffset);
+        adjustedTarget.addScaledVector(upVec, lensVerticalOffset);
+        
         magnifyCamera.position.copy(playerEyePosition);
-        magnifyCamera.up.copy(mainCameraUp);
-        magnifyCamera.lookAt(lensCenterPosition);
+        
+        // --- START: KORRIGERING FÖR HUVUDLUTNING ---
+        // Hämta huvudkamerans "upp"-riktning för att matcha huvudets lutning.
+        const mainCameraUp = new THREE.Vector3(0, 1, 0);
+        const worldQuaternion = new THREE.Quaternion();
+        camera.getWorldQuaternion(worldQuaternion);
+        mainCameraUp.applyQuaternion(worldQuaternion);
 
-        // --- START: REVIDERAD KOD FÖR MJUKARE ÖVERGÅNG ---
-        // Istället för att kolla på den utjämnade rörelsen (currentVelocity),
-        // kollar vi på spelarens direkta input (targetVelocity).
+        // Applicera "upp"-riktningen INNAN vi anropar lookAt.
+        magnifyCamera.up.copy(mainCameraUp);
+        magnifyCamera.lookAt(adjustedTarget);
+        // --- SLUT: KORRIGERING FÖR HUVUDLUTNING ---
+
+
         if (targetVelocity.length() > 0) {
-            // SPELAREN VILL RÖRA SIG (har rört styrspaken): Använd suddig bild.
             renderer.setRenderTarget(lowResLensTarget);
             renderer.render(scene, magnifyCamera);
             lensMaterial.map = lowResLensTarget.texture;
         } else {
-            // SPELAREN HAR SLÄPPT STYRSPAKEN: Använd skarp bild.
-            // Detta sker direkt, medan karaktären fortfarande bromsar in,
-            // vilket ger en känsla av att bilden blir skarp när man saktar ner.
             renderer.setRenderTarget(highResLensTarget);
             renderer.render(scene, magnifyCamera);
             lensMaterial.map = highResLensTarget.texture;
         }
         lensMaterial.needsUpdate = true;
-        // --- SLUT: REVIDERAD KOD FÖR MJUKARE ÖVERGÅNG ---
 
         renderer.setRenderTarget(null);
         renderer.toneMapping = originalToneMapping;
@@ -585,8 +600,12 @@ function animate() {
 
         const lensMesh = magnifyingGlass.getObjectByName('lens');
         if (lensMesh) {
+            // --- START: KORRIGERING FÖR HUVUDLUTNING ---
+            // Se till att även linsens yta använder samma "upp"-riktning
+            // så att texturen på linsen inte vrider sig ologiskt.
             lensMesh.up.copy(mainCameraUp);
             lensMesh.lookAt(playerEyePosition);
+            // --- SLUT: KORRIGERING FÖR HUVUDLUTNING ---
         }
     }
     
