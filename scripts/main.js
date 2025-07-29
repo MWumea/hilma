@@ -9,11 +9,8 @@ let clock;
 const movementSpeed = 1.5;
 const smoothingFactor = 0.92;
 
-// Justera dessa små värden för att finjustera siktet i förstoringsglaset.
-// Värden anges i meter (0.01 = 1 cm).
-// Negativa värden flyttar siktet åt vänster/nedåt.
-const lensHorizontalOffset = -0.007; // Justerar i sidled
-const lensVerticalOffset = 0.002;   // Justerar i höjdled
+const lensHorizontalOffset = -0.007; 
+const lensVerticalOffset = 0.002;   
 
 let currentVelocity = new THREE.Vector3(0, 0, 0);
 let targetVelocity = new THREE.Vector3(0, 0, 0);
@@ -70,7 +67,15 @@ let highResLensTarget;
 let lowResLensTarget; 
 
 let isHintModeActive = false;
-const hintActivationTime = 6;
+const hintActivationTime = 10;
+
+let magnifyingGlassShimmer = null;
+let shimmerEffectEndTime = null;
+
+let particleSystem = null;
+const particleCount = 200;
+let particlesData = [];
+
 
 function checkXR() {
     const infoElement = document.getElementById('info');
@@ -263,9 +268,50 @@ function updateTimer() {
     if (!isHintModeActive && isGameRunning && (gameDuration - timeRemaining) >= hintActivationTime) {
         isHintModeActive = true;
         console.log(`HINT MODE AKTIVERAT efter ${hintActivationTime} sekunder.`);
+
+        if (clock) {
+            shimmerEffectEndTime = clock.getElapsedTime() + 10.0;
+            spawnParticles();
+        }
     }
 }
 function updateClueLights() { let intensity = 0; if (timeRemaining <= revealStartTime) { const progress = 1.0 - (timeRemaining / revealStartTime); intensity = clueLightMaxIntensity * progress; } const paintings = getAllPaintingObjects(); paintings.forEach(painting => { if (painting.userData.clueLights) { painting.userData.clueLights.forEach(light => { light.intensity = intensity; }); } }); }
+
+// --- START: KORRIGERING AV PARTIKLARNAS STARTPOSITION ---
+function spawnParticles() {
+    if (!room || !room.roomSize) return;
+
+    // Sätt en startradie som är större än rummet för att de ska komma utifrån
+    const spawnRadius = room.roomSize.width * 1.5; 
+    
+    // Centrera start-sfären mitt i rummet för varierad höjd
+    const centerPoint = new THREE.Vector3(0, room.roomSize.height / 2, 0);
+
+    for (let i = 0; i < particleCount; i++) {
+        const pData = particlesData[i];
+        pData.life = 3.0 + Math.random() * 4.0; 
+        pData.maxLife = pData.life;
+        
+        // Skapa en slumpmässig punkt på ytan av en stor sfär
+        const theta = Math.random() * 2 * Math.PI;
+        const phi = Math.acos((Math.random() * 2) - 1);
+        const x = centerPoint.x + spawnRadius * Math.sin(phi) * Math.cos(theta);
+        const y = centerPoint.y + spawnRadius * Math.sin(phi) * Math.sin(theta);
+        const z = centerPoint.z + spawnRadius * Math.cos(phi);
+        
+        pData.position.set(x, y, z);
+
+        const angle = Math.random() * Math.PI * 2;
+        const shimmerRadius = 0.06 * 1.15;
+        const targetOffset = new THREE.Vector3(
+            Math.cos(angle) * shimmerRadius,
+            Math.sin(angle) * shimmerRadius,
+            0
+        );
+        pData.target = targetOffset;
+    }
+}
+// --- SLUT: KORRIGERING AV PARTIKLARNAS STARTPOSITION ---
 
 function startVR() {
     const infoElement = document.getElementById('info');
@@ -324,6 +370,21 @@ function onSessionEnded() {
     updateWorldTimerDisplay('00', '00');
     
     window.addEventListener('resize', onWindowResize, false);
+}
+
+function createParticleTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext('2d');
+    const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    gradient.addColorStop(0.2, 'rgba(255, 255, 255, 1)');
+    gradient.addColorStop(0.4, 'rgba(255, 255, 255, 0.8)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, 64, 64);
+    return new THREE.CanvasTexture(canvas);
 }
 
 function setupControllers() {
@@ -386,6 +447,69 @@ function setupControllers() {
     handleMesh.position.y = -0.12;
     magnifyingGlass.add(handleMesh);
 
+    const shimmerShape = new THREE.Shape();
+    const shimmerWidth = 0.025;
+    const shimmerHeight = 0.01;
+    shimmerShape.moveTo(-shimmerWidth / 2, -shimmerHeight / 2);
+    shimmerShape.lineTo(shimmerWidth / 2, -shimmerHeight / 2);
+    shimmerShape.lineTo(shimmerWidth / 2, shimmerHeight / 2);
+    shimmerShape.lineTo(-shimmerWidth / 2, shimmerHeight / 2);
+    shimmerShape.lineTo(-shimmerWidth / 2, -shimmerHeight / 2);
+    
+    const shimmerPoints = [];
+    const shimmerRadius = radius * 1.15;
+    for (let i = 0; i <= divisions; i++) {
+        const angle = (i / divisions) * Math.PI * 2;
+        shimmerPoints.push(new THREE.Vector3(Math.cos(angle) * shimmerRadius, 0, Math.sin(angle) * shimmerRadius));
+    }
+    const shimmerPath = new THREE.CatmullRomCurve3(shimmerPoints);
+    
+    const shimmerExtrudeSettings = { steps: 128, bevelEnabled: false, extrudePath: shimmerPath };
+    const shimmerGeometry = new THREE.ExtrudeGeometry(shimmerShape, shimmerExtrudeSettings);
+
+    const shimmerMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending
+    });
+    magnifyingGlassShimmer = new THREE.Mesh(shimmerGeometry, shimmerMaterial);
+    magnifyingGlassShimmer.rotation.x = Math.PI / 2;
+    magnifyingGlass.add(magnifyingGlassShimmer);
+
+    const particleGeometry = new THREE.BufferGeometry();
+    const positions = new Float32Array(particleCount * 3);
+
+    for (let i = 0; i < particleCount; i++) {
+        positions[i * 3] = 10000;
+        positions[i * 3 + 1] = 10000;
+        positions[i * 3 + 2] = 10000;
+
+        particlesData.push({
+            position: new THREE.Vector3(10000, 10000, 10000),
+            target: new THREE.Vector3(),
+            life: 0,
+            maxLife: 0
+        });
+    }
+
+    particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const particleMaterial = new THREE.PointsMaterial({
+        map: createParticleTexture(),
+        size: 0.025,
+        color: 0x00ffff,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        opacity: 0
+    });
+
+    particleSystem = new THREE.Points(particleGeometry, particleMaterial);
+    scene.add(particleSystem);
+
+
     magnifyCamera = new THREE.PerspectiveCamera(7, 1, 0.01, 100);
     scene.add(magnifyCamera);
 
@@ -445,6 +569,53 @@ function animate() {
     const deltaTime = Math.min(clock.getDelta(), 0.1);
     const now = clock.getElapsedTime();
     targetVelocity.set(0, 0, 0);
+
+    if (shimmerEffectEndTime && magnifyingGlassShimmer) {
+        if (now < shimmerEffectEndTime) {
+            const timeSinceStart = now - (shimmerEffectEndTime - 10.0);
+            const pulse = (Math.sin(timeSinceStart * Math.PI * 2) + 1) / 2;
+            magnifyingGlassShimmer.material.opacity = pulse * 0.7;
+        } else {
+            magnifyingGlassShimmer.material.opacity = 0;
+            shimmerEffectEndTime = null;
+        }
+    }
+    
+    if (particleSystem && shimmerEffectEndTime && now < shimmerEffectEndTime) {
+        const positions = particleSystem.geometry.attributes.position.array;
+        
+        let activeParticles = 0;
+        for (let i = 0; i < particleCount; i++) {
+            const pData = particlesData[i];
+            
+            if (pData.life > 0) {
+                activeParticles++;
+                pData.life -= deltaTime;
+
+                const localTarget = pData.target.clone();
+                const worldTarget = magnifyingGlass.localToWorld(localTarget);
+                
+                pData.position.lerp(worldTarget, deltaTime * 0.8);
+                
+                positions[i * 3] = pData.position.x;
+                positions[i * 3 + 1] = pData.position.y;
+                positions[i * 3 + 2] = pData.position.z;
+            } else {
+                 positions[i * 3 + 1] = -10000;
+            }
+        }
+        
+        particleSystem.visible = activeParticles > 0;
+        if (particleSystem.visible) {
+             const timeSinceStart = now - (shimmerEffectEndTime - 10.0);
+             particleSystem.material.opacity = Math.sin(timeSinceStart * (Math.PI / 10));
+             particleSystem.geometry.attributes.position.needsUpdate = true;
+        }
+
+    } else if (particleSystem) {
+        particleSystem.visible = false;
+    }
+
 
     if (!renderer.xr.isPresenting) {
         const forwardDirection = new THREE.Vector3();
@@ -555,18 +726,13 @@ function animate() {
         
         magnifyCamera.position.copy(playerEyePosition);
         
-        // --- START: KORRIGERING FÖR HUVUDLUTNING ---
-        // Hämta huvudkamerans "upp"-riktning för att matcha huvudets lutning.
         const mainCameraUp = new THREE.Vector3(0, 1, 0);
         const worldQuaternion = new THREE.Quaternion();
         camera.getWorldQuaternion(worldQuaternion);
         mainCameraUp.applyQuaternion(worldQuaternion);
 
-        // Applicera "upp"-riktningen INNAN vi anropar lookAt.
         magnifyCamera.up.copy(mainCameraUp);
         magnifyCamera.lookAt(adjustedTarget);
-        // --- SLUT: KORRIGERING FÖR HUVUDLUTNING ---
-
 
         if (targetVelocity.length() > 0) {
             renderer.setRenderTarget(lowResLensTarget);
@@ -600,12 +766,8 @@ function animate() {
 
         const lensMesh = magnifyingGlass.getObjectByName('lens');
         if (lensMesh) {
-            // --- START: KORRIGERING FÖR HUVUDLUTNING ---
-            // Se till att även linsens yta använder samma "upp"-riktning
-            // så att texturen på linsen inte vrider sig ologiskt.
             lensMesh.up.copy(mainCameraUp);
             lensMesh.lookAt(playerEyePosition);
-            // --- SLUT: KORRIGERING FÖR HUVUDLUTNING ---
         }
     }
     
