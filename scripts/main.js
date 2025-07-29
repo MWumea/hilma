@@ -7,7 +7,8 @@ let playerRig;
 
 let clock;
 const movementSpeed = 1.5;
-const smoothingFactor = 0.85;
+// --- KORRIGERING: Ökat värde för mjukare start/stopp och mindre "hopp" ---
+const smoothingFactor = 0.92;
 
 let currentVelocity = new THREE.Vector3(0, 0, 0);
 let targetVelocity = new THREE.Vector3(0, 0, 0);
@@ -98,7 +99,6 @@ function init() {
     scene.add(playerRig);
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 
-    // --- OPTIMERING 1: Sänkt pixel ratio för bättre prestanda ---
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
     
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -265,7 +265,6 @@ function startVR() {
     document.getElementById('enterVR').style.display = 'none';
     if (document.pointerLockElement) { document.exitPointerLock(); }
     
-    // --- FIX 2: Ta bort lyssnaren för storleksändring för att förhindra fel i VR ---
     window.removeEventListener('resize', onWindowResize);
     
     navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] }).then(async (session) => {
@@ -297,7 +296,6 @@ function startVR() {
         infoElement.style.display = 'block';
         document.getElementById('enterVR').style.display = 'block';
         playerRig.position.y = desktopEyeHeight;
-        // Sätt tillbaka lyssnaren om VR-sessionen misslyckas
         window.addEventListener('resize', onWindowResize, false);
     });
 }
@@ -317,7 +315,6 @@ function onSessionEnded() {
     updateClueLights();
     updateWorldTimerDisplay('00', '00');
     
-    // --- FIX 2: Lägg tillbaka lyssnaren för storleksändring när VR avslutas ---
     window.addEventListener('resize', onWindowResize, false);
 }
 
@@ -362,7 +359,6 @@ function setupControllers() {
     
     magnifyingGlass.add(ringMesh);
 
-    // --- OPTIMERING 3: Sänkt upplösning på förstoringsglasets rendering ---
     const renderTargetSize = 1024;
     lensRenderTarget = new THREE.WebGLRenderTarget(renderTargetSize, renderTargetSize);
 
