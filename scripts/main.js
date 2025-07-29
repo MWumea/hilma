@@ -59,6 +59,8 @@ const vrBaseHeight = 0.5;
 
 let isGameRunning = false;
 
+let vrSessionStarting = false;
+
 let magnifyCamera;
 let magnifyingGlass;
 
@@ -67,7 +69,7 @@ let highResLensTarget;
 let lowResLensTarget; 
 
 let isHintModeActive = false;
-const hintActivationTime = 10;
+const hintActivationTime = 150;
 
 let magnifyingGlassShimmer = null;
 let shimmerEffectEndTime = null;
@@ -110,7 +112,8 @@ function init() {
     playerRig.rotation.y = Math.PI;
     playerRig.add(camera);
     scene.add(playerRig);
-    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    
+    renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
     
@@ -164,7 +167,9 @@ function init() {
 }
 
 function onMouseMove(event) {
-    if (!renderer.xr.isPresenting && document.pointerLockElement === renderer.domElement.parentElement) {
+    if (renderer.xr.isPresenting || vrSessionStarting) return;
+
+    if (document.pointerLockElement === renderer.domElement.parentElement) {
         const movementX = event.movementX || 0;
         const movementY = event.movementY || 0;
         playerRig.rotation.y -= movementX * mouseSensitivity;
@@ -277,22 +282,18 @@ function updateTimer() {
 }
 function updateClueLights() { let intensity = 0; if (timeRemaining <= revealStartTime) { const progress = 1.0 - (timeRemaining / revealStartTime); intensity = clueLightMaxIntensity * progress; } const paintings = getAllPaintingObjects(); paintings.forEach(painting => { if (painting.userData.clueLights) { painting.userData.clueLights.forEach(light => { light.intensity = intensity; }); } }); }
 
-// --- START: KORRIGERING AV PARTIKLARNAS STARTPOSITION ---
 function spawnParticles() {
     if (!room || !room.roomSize) return;
 
-    // Sätt en startradie som är större än rummet för att de ska komma utifrån
     const spawnRadius = room.roomSize.width * 1.5; 
     
-    // Centrera start-sfären mitt i rummet för varierad höjd
     const centerPoint = new THREE.Vector3(0, room.roomSize.height / 2, 0);
 
     for (let i = 0; i < particleCount; i++) {
         const pData = particlesData[i];
-        pData.life = 3.0 + Math.random() * 4.0; 
+        pData.life = 8.0 + Math.random() * 2.0; 
         pData.maxLife = pData.life;
         
-        // Skapa en slumpmässig punkt på ytan av en stor sfär
         const theta = Math.random() * 2 * Math.PI;
         const phi = Math.acos((Math.random() * 2) - 1);
         const x = centerPoint.x + spawnRadius * Math.sin(phi) * Math.cos(theta);
@@ -311,9 +312,10 @@ function spawnParticles() {
         pData.target = targetOffset;
     }
 }
-// --- SLUT: KORRIGERING AV PARTIKLARNAS STARTPOSITION ---
 
 function startVR() {
+    vrSessionStarting = true;
+    
     const infoElement = document.getElementById('info');
     infoElement.style.display = 'none';
     document.getElementById('enterVR').style.display = 'none';
@@ -347,6 +349,7 @@ function startVR() {
 
     }).catch(err => {
         console.warn("VR session request failed or was cancelled:", err);
+        vrSessionStarting = false;
         infoElement.style.display = 'block';
         document.getElementById('enterVR').style.display = 'block';
         playerRig.position.y = desktopEyeHeight;
@@ -355,6 +358,8 @@ function startVR() {
 }
 
 function onSessionEnded() {
+    vrSessionStarting = false;
+
     document.getElementById('info').style.display = 'block';
     document.getElementById('enterVR').style.display = 'block';
     rightStickController = null; leftStickController = null;
@@ -428,8 +433,15 @@ function setupControllers() {
     
     magnifyingGlass.add(ringMesh);
 
-    highResLensTarget = new THREE.WebGLRenderTarget(1024, 1024);
-    lowResLensTarget = new THREE.WebGLRenderTarget(64, 64);
+    // --- START: KORRIGERING FÖR WEGL-VARNING ---
+    // Lägger till colorSpace för att matcha renderarens inställningar
+    const renderTargetOptions = {
+        type: THREE.HalfFloatType,
+        colorSpace: THREE.SRGBColorSpace
+    };
+    highResLensTarget = new THREE.WebGLRenderTarget(1024, 1024, renderTargetOptions);
+    lowResLensTarget = new THREE.WebGLRenderTarget(64, 64, renderTargetOptions);
+    // --- SLUT: KORRIGERING FÖR WEGL-VARNING ---
 
     lensMaterial = new THREE.MeshBasicMaterial({ map: highResLensTarget.texture });
     
