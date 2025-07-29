@@ -7,7 +7,6 @@ let playerRig;
 
 let clock;
 const movementSpeed = 1.5;
-// --- KORRIGERING: Ökat värde för mjukare start/stopp och mindre "hopp" ---
 const smoothingFactor = 0.92;
 
 let currentVelocity = new THREE.Vector3(0, 0, 0);
@@ -58,8 +57,11 @@ const vrBaseHeight = 0.5;
 let isGameRunning = false;
 
 let magnifyCamera;
-let lensRenderTarget;
 let magnifyingGlass;
+
+let lensMaterial; 
+let highResLensTarget;
+let lowResLensTarget; 
 
 let isHintModeActive = false;
 const hintActivationTime = 6;
@@ -359,10 +361,10 @@ function setupControllers() {
     
     magnifyingGlass.add(ringMesh);
 
-    const renderTargetSize = 1024;
-    lensRenderTarget = new THREE.WebGLRenderTarget(renderTargetSize, renderTargetSize);
+    highResLensTarget = new THREE.WebGLRenderTarget(1024, 1024);
+    lowResLensTarget = new THREE.WebGLRenderTarget(64, 64);
 
-    const lensMaterial = new THREE.MeshBasicMaterial({ map: lensRenderTarget.texture });
+    lensMaterial = new THREE.MeshBasicMaterial({ map: highResLensTarget.texture });
     
     const lensRadius = 0.055;
     const lensGeometry = new THREE.CircleGeometry(lensRadius, 64);
@@ -506,7 +508,7 @@ function animate() {
     }
     applySmoothMovement(deltaTime);
 
-    if (renderer.xr.isPresenting && leftStickGrip && magnifyCamera && lensRenderTarget) {
+    if (renderer.xr.isPresenting && leftStickGrip && magnifyCamera && highResLensTarget) {
         
         const originalToneMapping = renderer.toneMapping;
         renderer.toneMapping = THREE.NoToneMapping;
@@ -543,10 +545,26 @@ function animate() {
         magnifyCamera.up.copy(mainCameraUp);
         magnifyCamera.lookAt(lensCenterPosition);
 
-        renderer.setRenderTarget(lensRenderTarget);
-        renderer.render(scene, magnifyCamera);
-        renderer.setRenderTarget(null);
+        // --- START: REVIDERAD KOD FÖR MJUKARE ÖVERGÅNG ---
+        // Istället för att kolla på den utjämnade rörelsen (currentVelocity),
+        // kollar vi på spelarens direkta input (targetVelocity).
+        if (targetVelocity.length() > 0) {
+            // SPELAREN VILL RÖRA SIG (har rört styrspaken): Använd suddig bild.
+            renderer.setRenderTarget(lowResLensTarget);
+            renderer.render(scene, magnifyCamera);
+            lensMaterial.map = lowResLensTarget.texture;
+        } else {
+            // SPELAREN HAR SLÄPPT STYRSPAKEN: Använd skarp bild.
+            // Detta sker direkt, medan karaktären fortfarande bromsar in,
+            // vilket ger en känsla av att bilden blir skarp när man saktar ner.
+            renderer.setRenderTarget(highResLensTarget);
+            renderer.render(scene, magnifyCamera);
+            lensMaterial.map = highResLensTarget.texture;
+        }
+        lensMaterial.needsUpdate = true;
+        // --- SLUT: REVIDERAD KOD FÖR MJUKARE ÖVERGÅNG ---
 
+        renderer.setRenderTarget(null);
         renderer.toneMapping = originalToneMapping;
         renderer.xr.enabled = xrEnabled;
         magnifyingGlass.visible = true;
