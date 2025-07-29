@@ -61,8 +61,7 @@ let lensRenderTarget;
 let magnifyingGlass;
 
 let isHintModeActive = false;
-// ÄNDRA HÄR för den slutgiltiga tiden (t.ex. 120 sekunder för 2 minuter)
-const hintActivationTime = 6; // Sekunder innan hjälpfunktionen aktiveras
+const hintActivationTime = 6;
 
 function checkXR() {
     const infoElement = document.getElementById('info');
@@ -98,7 +97,10 @@ function init() {
     playerRig.add(camera);
     scene.add(playerRig);
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+
+    // --- OPTIMERING 1: Sänkt pixel ratio för bättre prestanda ---
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
+    
     renderer.setSize(window.innerWidth, window.innerHeight);
     lastWidth = window.innerWidth;
     lastHeight = window.innerHeight;
@@ -263,6 +265,9 @@ function startVR() {
     document.getElementById('enterVR').style.display = 'none';
     if (document.pointerLockElement) { document.exitPointerLock(); }
     
+    // --- FIX 2: Ta bort lyssnaren för storleksändring för att förhindra fel i VR ---
+    window.removeEventListener('resize', onWindowResize);
+    
     navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] }).then(async (session) => {
         playerRig.position.y = vrBaseHeight;
 
@@ -292,6 +297,8 @@ function startVR() {
         infoElement.style.display = 'block';
         document.getElementById('enterVR').style.display = 'block';
         playerRig.position.y = desktopEyeHeight;
+        // Sätt tillbaka lyssnaren om VR-sessionen misslyckas
+        window.addEventListener('resize', onWindowResize, false);
     });
 }
 
@@ -309,6 +316,9 @@ function onSessionEnded() {
     timeRemaining = gameDuration;
     updateClueLights();
     updateWorldTimerDisplay('00', '00');
+    
+    // --- FIX 2: Lägg tillbaka lyssnaren för storleksändring när VR avslutas ---
+    window.addEventListener('resize', onWindowResize, false);
 }
 
 function setupControllers() {
@@ -352,7 +362,8 @@ function setupControllers() {
     
     magnifyingGlass.add(ringMesh);
 
-    const renderTargetSize = 2048;
+    // --- OPTIMERING 3: Sänkt upplösning på förstoringsglasets rendering ---
+    const renderTargetSize = 1024;
     lensRenderTarget = new THREE.WebGLRenderTarget(renderTargetSize, renderTargetSize);
 
     const lensMaterial = new THREE.MeshBasicMaterial({ map: lensRenderTarget.texture });
@@ -501,18 +512,13 @@ function animate() {
 
     if (renderer.xr.isPresenting && leftStickGrip && magnifyCamera && lensRenderTarget) {
         
-        // --- START PÅ REVIDERAD KOD ---
-        // Spara rendererarens nuvarande inställningar
         const originalToneMapping = renderer.toneMapping;
-
-        // Stäng av tone mapping för att få starkare, oförändrade färger i linsen
         renderer.toneMapping = THREE.NoToneMapping;
         
         magnifyingGlass.visible = false;
         const xrEnabled = renderer.xr.enabled;
         renderer.xr.enabled = false;
         
-        // Byt till hint-texturer (samma logik som förut)
         if (isHintModeActive) {
             const paintings = getAllPaintingObjects();
             const textures = getPaintingTextures();
@@ -541,17 +547,14 @@ function animate() {
         magnifyCamera.up.copy(mainCameraUp);
         magnifyCamera.lookAt(lensCenterPosition);
 
-        // Rendera scenen till förstoringsglasets textur med de nya inställningarna
         renderer.setRenderTarget(lensRenderTarget);
         renderer.render(scene, magnifyCamera);
         renderer.setRenderTarget(null);
 
-        // Återställ rendererarens ursprungliga inställningar
         renderer.toneMapping = originalToneMapping;
         renderer.xr.enabled = xrEnabled;
         magnifyingGlass.visible = true;
         
-        // Byt tillbaka till originaltexturer (samma logik som förut)
         if (isHintModeActive) {
             const paintings = getAllPaintingObjects();
             const textures = getPaintingTextures();
@@ -565,7 +568,6 @@ function animate() {
                 }
             });
         }
-        // --- SLUT PÅ REVIDERAD KOD ---
 
         const lensMesh = magnifyingGlass.getObjectByName('lens');
         if (lensMesh) {
