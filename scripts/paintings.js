@@ -154,7 +154,30 @@ function createPaintings(scene, roomInstance) {
         }
         
         if (data.swapImagePath) {
-            swapTextures[data.id] = textureLoaderInstanceP.load(data.swapImagePath, (texture) => {texture.anisotropy = anisoVal;});
+            swapTextures[data.id] = textureLoaderInstanceP.load(data.swapImagePath, (texture) => {
+                texture.anisotropy = anisoVal;
+
+                // --- START PÅ KORRIGERAD KOD FÖR ASPEKT-HANTERING ---
+                const geometryAspectRatio = data.size.width / data.size.height; // ~0.67 för porträttet
+                const textureAspectRatio = 2732 / 2048; // Exakt förhållande baserat på bildens dimensioner
+
+                const ratio = textureAspectRatio / geometryAspectRatio;
+
+                if (ratio > 1) {
+                    // Texturen är bredare än geometrin. Anpassa X-axeln.
+                    texture.repeat.x = 1 / ratio;
+                    texture.offset.x = (1 - 1 / ratio) / 2;
+                } else {
+                    // Texturen är högre än geometrin. Anpassa Y-axeln.
+                    texture.repeat.y = ratio;
+                    texture.offset.y = (1 - ratio) / 2;
+                }
+                
+                // Förhindra att kanterna "blöder över" och repeteras
+                texture.wrapS = THREE.ClampToEdgeWrapping;
+                texture.wrapT = THREE.ClampToEdgeWrapping;
+                // --- SLUT PÅ KORRIGERAD KOD ---
+            });
         }
 
         const frontMaterialProperties = { map: paintingTexture, metalness: 0.0, };
