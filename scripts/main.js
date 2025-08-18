@@ -138,9 +138,9 @@ function init() {
     if (room && room.roomSize) {
         roomBoundaries = {
             minX: -room.roomSize.width + wallCollisionBuffer,
-            maxX: room.roomSize.width + wallCollisionBuffer,
+            maxX: room.roomSize.width - wallCollisionBuffer, 
             minZ: -room.roomSize.depth + wallCollisionBuffer,
-            maxZ: room.roomSize.depth + wallCollisionBuffer,
+            maxZ: room.roomSize.depth - wallCollisionBuffer, 
         };
     }
     if (room.benchMesh && room.benchDimensions) {
