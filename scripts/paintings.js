@@ -44,7 +44,6 @@ function createWorldTimer(scene, paintingMesh, paintingData) {
         paintingPos.z + 0.03 // JUSTERAD: Flyttad 3cm framför tavlan
     );
     // Se till att timern också roterar med tavlan om tavlan skulle ha en annan Y-rotation
-    // (Hilmas porträtt har rotationY: 0, så detta är mest för framtida robusthet)
     timerMesh.rotation.y = paintingMesh.rotation.y;
     
     scene.add(timerMesh);
@@ -91,7 +90,8 @@ function createPaintings(scene, roomInstance) {
     const H_gallery = roomInstance.roomSize.height;
     const D_half = roomInstance.roomSize.depth;
     
-    const paintingCenterY = H_gallery * 0.55;
+    // --- HÄR ÄR ÄNDRINGEN: Sänker alla tavlor med 30 cm ---
+    const paintingCenterY = (H_gallery * 0.55) - 0.3;
     const wallOffsetToCenter = 0.04; 
     const paintingDepth = 0.04; 
 
@@ -118,9 +118,7 @@ function createPaintings(scene, roomInstance) {
         },
         {
             id: "painting_left_2", imagePath: "images/tavla2.jpg",
-            // --- START PÅ TILLAGD KOD ---
             hintImagePath: "images/tavla2_hint.jpg", // Sökväg till ledtrådsbilden
-            // --- SLUT PÅ TILLAGD KOD ---
             position: new THREE.Vector3(-W_half + wallOffsetToCenter, paintingCenterY, D_half * 0.4),
             rotationY: Math.PI / 2, size: { width: paintingWidth, height: paintingHeight }
         },
@@ -132,9 +130,7 @@ function createPaintings(scene, roomInstance) {
         },
         {
             id: "painting_right_1", imagePath: "images/tavla4.jpg",
-            // --- START PÅ TILLAGD KOD ---
             hintImagePath: "images/tavla4_hint.jpg", // Sökväg till ledtrådsbilden
-            // --- SLUT PÅ TILLAGD KOD ---
             position: new THREE.Vector3(W_half - wallOffsetToCenter, paintingCenterY, -D_half * 0.4),
             rotationY: -Math.PI / 2, size: { width: paintingWidth, height: paintingHeight },
             clues: [ { uv: new THREE.Vector2(0.5, 0.5) } ]
