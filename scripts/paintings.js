@@ -126,20 +126,20 @@ function createPaintings(scene, roomInstance) {
             hintImagePath: "images/tavla3_hint.jpg",
             position: new THREE.Vector3(0, paintingCenterY, D_half - wallOffsetToCenter),
             rotationY: Math.PI, 
-            // --- HÄR ÄR ÄNDRINGEN: Samma höjd som övriga, bredd justerad för 4:3-förhållande ---
-            size: { width: paintingHeight * (4/3), height: paintingHeight }
+            // --- HÄR ÄR ÄNDRINGEN: Gjort tavlan 25% smalare, vilket resulterar i en kvadrat ---
+            size: { width: paintingHeight, height: paintingHeight }
         },
         {
             id: "painting_right_1", imagePath: "images/tavla4.jpg",
             hintImagePath: "images/tavla4_hint.jpg",
-            position: new THREE.Vector3(W_half - wallOffsetToCenter, paintingCenterY, -D_half * 0.4),
+            position: new THREE.Vector3(W_half + wallOffsetToCenter, paintingCenterY, -D_half * 0.4),
             rotationY: -Math.PI / 2, size: { width: paintingWidth, height: paintingHeight },
             clues: [ { uv: new THREE.Vector2(0.5, 0.5) } ]
         },
         {
             id: "painting_right_2", imagePath: "images/tavla5.jpg",
             hintImagePath: "images/tavla5_hint.jpg",
-            position: new THREE.Vector3(W_half - wallOffsetToCenter, paintingCenterY, D_half * 0.4),
+            position: new THREE.Vector3(W_half + wallOffsetToCenter, paintingCenterY, D_half * 0.4),
             rotationY: -Math.PI / 2, size: { width: paintingWidth, height: paintingHeight }
         }
     ];
