@@ -10,9 +10,10 @@ let canvasAoMap = null;
 // Global variabel för att hålla reda på vår 3D-timer
 let worldTimerObject = null;
 
-// Objekt för att hålla reda på original- och ledtrådstexturer
+// Objekt för att hålla reda på original-, ledtråds- och specialtexturer
 let originalTextures = {};
 let hintTextures = {};
+let swapTextures = {}; // NY: För bilder som ska bytas ut
 
 // Funktion för att skapa timern i 3D-världen
 function createWorldTimer(scene, paintingMesh, paintingData) {
@@ -41,15 +42,13 @@ function createWorldTimer(scene, paintingMesh, paintingData) {
     timerMesh.position.set(
         paintingPos.x,
         paintingPos.y + (paintingSize.height / 2) + 0.15, // Höjden är 15cm ovanför tavlans kant
-        paintingPos.z + 0.03 // JUSTERAD: Flyttad 3cm framför tavlan
+        paintingPos.z + 0.03
     );
-    // Se till att timern också roterar med tavlan om tavlan skulle ha en annan Y-rotation
     timerMesh.rotation.y = paintingMesh.rotation.y;
     
     scene.add(timerMesh);
     
-    // Spara de delar vi behöver för att kunna uppdatera texten senare
-    worldTimerObject = { context, texture, canvas, mesh: timerMesh }; // Lade till mesh här också
+    worldTimerObject = { context, texture, canvas, mesh: timerMesh };
 }
 
 
@@ -90,8 +89,7 @@ function createPaintings(scene, roomInstance) {
     const H_gallery = roomInstance.roomSize.height;
     const D_half = roomInstance.roomSize.depth;
     
-    // --- HÄR ÄR ÄNDRINGEN: Sänker alla tavlor med 30 cm ---
-    const paintingCenterY = (H_gallery * 0.55) - 0.3;
+    const paintingCenterY = (H_gallery * 0.55) - 0.45;
     const wallOffsetToCenter = 0.04; 
     const paintingDepth = 0.04; 
 
@@ -105,39 +103,41 @@ function createPaintings(scene, roomInstance) {
     const paintingData = [
         {
             id: "painting_front_center", imagePath: "images/Hilma_portrait.jpg",
+            // --- HÄR ÄR ÄNDRINGEN: Lägger till bilden som porträttet ska bytas ut mot ---
+            swapImagePath: "images/forstoringsglas_hint.jpg",
             position: new THREE.Vector3(0, paintingCenterY, -D_half + wallOffsetToCenter),
             rotationY: 0, size: { width: paintingWidth, height: paintingHeight }, 
             isFlat: true
         },
         {
             id: "painting_left_1", imagePath: "images/tavla1.jpg",
-            hintImagePath: "images/tavla1_hint.jpg", // Sökväg till ledtrådsbilden
+            hintImagePath: "images/tavla1_hint.jpg",
             position: new THREE.Vector3(-W_half + wallOffsetToCenter, paintingCenterY, -D_half * 0.4),
             rotationY: Math.PI / 2, size: { width: paintingWidth, height: paintingHeight },
             clues: [ { uv: new THREE.Vector2(0.75, 0.80) }, { uv: new THREE.Vector2(0.25, 0.30) } ]
         },
         {
             id: "painting_left_2", imagePath: "images/tavla2.jpg",
-            hintImagePath: "images/tavla2_hint.jpg", // Sökväg till ledtrådsbilden
+            hintImagePath: "images/tavla2_hint.jpg",
             position: new THREE.Vector3(-W_half + wallOffsetToCenter, paintingCenterY, D_half * 0.4),
             rotationY: Math.PI / 2, size: { width: paintingWidth, height: paintingHeight }
         },
         {
             id: "painting_back_center", imagePath: "images/tavla3.jpg",
-            hintImagePath: "images/tavla3_hint.jpg", // Sökväg till ledtrådsbilden
+            hintImagePath: "images/tavla3_hint.jpg",
             position: new THREE.Vector3(0, paintingCenterY, D_half - wallOffsetToCenter),
-            rotationY: Math.PI, size: { width: paintingWidth * 1.8, height: paintingHeight * 0.9 }
+            rotationY: Math.PI, size: { width: paintingWidth * 1.4, height: paintingHeight * 0.7 }
         },
         {
             id: "painting_right_1", imagePath: "images/tavla4.jpg",
-            hintImagePath: "images/tavla4_hint.jpg", // Sökväg till ledtrådsbilden
+            hintImagePath: "images/tavla4_hint.jpg",
             position: new THREE.Vector3(W_half - wallOffsetToCenter, paintingCenterY, -D_half * 0.4),
             rotationY: -Math.PI / 2, size: { width: paintingWidth, height: paintingHeight },
             clues: [ { uv: new THREE.Vector2(0.5, 0.5) } ]
         },
         {
             id: "painting_right_2", imagePath: "images/tavla5.jpg",
-            hintImagePath: "images/tavla5_hint.jpg", // Sökväg till ledtrådsbilden
+            hintImagePath: "images/tavla5_hint.jpg",
             position: new THREE.Vector3(W_half - wallOffsetToCenter, paintingCenterY, D_half * 0.4),
             rotationY: -Math.PI / 2, size: { width: paintingWidth, height: paintingHeight }
         }
@@ -147,12 +147,15 @@ function createPaintings(scene, roomInstance) {
         const anisoVal = (typeof renderer !== 'undefined' && renderer.capabilities) ? renderer.capabilities.getMaxAnisotropy() : 1;
         const paintingTexture = textureLoaderInstanceP.load(data.imagePath, (texture) => {texture.anisotropy = anisoVal;});
         
-        // Spara originaltexturen
         originalTextures[data.id] = paintingTexture;
 
-        // Ladda och spara ledtrådstexturen om den finns
         if (data.hintImagePath) {
             hintTextures[data.id] = textureLoaderInstanceP.load(data.hintImagePath, (texture) => {texture.anisotropy = anisoVal;});
+        }
+        
+        // --- NY KOD: Laddar in swap-bilden ---
+        if (data.swapImagePath) {
+            swapTextures[data.id] = textureLoaderInstanceP.load(data.swapImagePath, (texture) => {texture.anisotropy = anisoVal;});
         }
 
         const frontMaterialProperties = { map: paintingTexture, metalness: 0.0, };
@@ -226,10 +229,11 @@ function getWorldTimerObject() {
     return worldTimerObject;
 }
 
-// Denna funktion gör de inlästa texturerna tillgängliga för main.js.
 function getPaintingTextures() {
     return {
         originals: originalTextures,
-        hints: hintTextures
+        hints: hintTextures,
+        // --- NY KOD: Gör swap-texturerna tillgängliga ---
+        swaps: swapTextures
     };
 }

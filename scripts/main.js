@@ -78,6 +78,10 @@ let particleSystem = null;
 const particleCount = 200;
 let particlesData = [];
 
+// --- START: NYA GLOBALA VARIABLER FÖR SKIMMER-EFFEKT ---
+let portraitTransitionEffect = null;
+// --- SLUT: NYA GLOBALA VARIABLER ---
+
 
 function checkXR() {
     const infoElement = document.getElementById('info');
@@ -258,6 +262,7 @@ function processTeleportAction(controller) {
 
 function startGame() { if (isGameRunning) return; isGameRunning = true; timeRemaining = gameDuration; if (gameTimerInterval) clearInterval(gameTimerInterval); timerElement.style.display = 'block'; gameTimerInterval = setInterval(updateTimer, 1000); updateTimer(); }
 function updateWorldTimerDisplay(minutes, seconds) { if (!worldTimer || !worldTimer.context) return; const { context, texture, canvas } = worldTimer; const text = `${minutes}:${seconds}`; context.clearRect(0, 0, canvas.width, canvas.height); context.font = 'bold 90px Arial'; context.fillStyle = 'red'; context.textAlign = 'center'; context.textBaseline = 'middle'; context.fillText(text, canvas.width / 2, canvas.height / 2); texture.needsUpdate = true; }
+
 function updateTimer() {
     if (timeRemaining > 0) {
         timeRemaining--;
@@ -274,34 +279,61 @@ function updateTimer() {
         isHintModeActive = true;
         console.log(`HINT MODE AKTIVERAT efter ${hintActivationTime} sekunder.`);
 
+        // --- START: NY KOD FÖR ATT BYTA UT HILMAS PORTRÄTT ---
+        if (!portraitTransitionEffect || !portraitTransitionEffect.active) {
+            const allPaintings = getAllPaintingObjects();
+            const textures = getPaintingTextures();
+
+            const portraitMesh = allPaintings.find(p => p.userData.id === 'painting_front_center');
+            const swapTexture = textures.swaps['painting_front_center'];
+
+            if (portraitMesh && swapTexture) {
+                // Skapa en skimrande yta framför tavlan
+                const shimmerPlaneGeo = new THREE.PlaneGeometry(portraitMesh.geometry.parameters.width, portraitMesh.geometry.parameters.height);
+                const shimmerPlaneMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
+                const shimmerPlane = new THREE.Mesh(shimmerPlaneGeo, shimmerPlaneMat);
+
+                // Positionera precis framför porträttet
+                shimmerPlane.position.copy(portraitMesh.position).add(new THREE.Vector3(0, 0, 0.01));
+                shimmerPlane.rotation.copy(portraitMesh.rotation);
+                scene.add(shimmerPlane);
+
+                // Starta övergångseffekten
+                portraitTransitionEffect = {
+                    active: true,
+                    startTime: clock.getElapsedTime(),
+                    duration: 1.5, // Total tid för effekten i sekunder
+                    mesh: shimmerPlane,
+                    targetMesh: portraitMesh,
+                    swapped: false
+                };
+            }
+        }
+        // --- SLUT: NY KOD ---
+
         if (clock) {
             shimmerEffectEndTime = clock.getElapsedTime() + 10.0;
             spawnParticles();
         }
     }
 }
+
 function updateClueLights() { let intensity = 0; if (timeRemaining <= revealStartTime) { const progress = 1.0 - (timeRemaining / revealStartTime); intensity = clueLightMaxIntensity * progress; } const paintings = getAllPaintingObjects(); paintings.forEach(painting => { if (painting.userData.clueLights) { painting.userData.clueLights.forEach(light => { light.intensity = intensity; }); } }); }
 
 function spawnParticles() {
     if (!room || !room.roomSize) return;
-
     const spawnRadius = room.roomSize.width * 1.5; 
-    
     const centerPoint = new THREE.Vector3(0, room.roomSize.height / 2, 0);
-
     for (let i = 0; i < particleCount; i++) {
         const pData = particlesData[i];
         pData.life = 8.0 + Math.random() * 2.0; 
         pData.maxLife = pData.life;
-        
         const theta = Math.random() * 2 * Math.PI;
         const phi = Math.acos((Math.random() * 2) - 1);
         const x = centerPoint.x + spawnRadius * Math.sin(phi) * Math.cos(theta);
         const y = centerPoint.y + spawnRadius * Math.sin(phi) * Math.sin(theta);
         const z = centerPoint.z + spawnRadius * Math.cos(phi);
-        
         pData.position.set(x, y, z);
-
         const angle = Math.random() * Math.PI * 2;
         const shimmerRadius = 0.06 * 1.15;
         const targetOffset = new THREE.Vector3(
@@ -315,25 +347,18 @@ function spawnParticles() {
 
 function startVR() {
     vrSessionStarting = true;
-    
     const infoElement = document.getElementById('info');
     infoElement.style.display = 'none';
     document.getElementById('enterVR').style.display = 'none';
     if (document.pointerLockElement) { document.exitPointerLock(); }
-    
     window.removeEventListener('resize', onWindowResize);
-    
     navigator.xr.requestSession('immersive-vr', { optionalFeatures: ['local-floor', 'bounded-floor'] }).then(async (session) => {
         playerRig.position.y = vrBaseHeight;
-
         await renderer.xr.setSession(session);
-
         if (XRWebGLLayer.getNativeFramebufferScaleFactor) {
             const gl = renderer.getContext();
             const nativeScaleFactor = XRWebGLLayer.getNativeFramebufferScaleFactor(session);
-            
             console.log(`Native (Quest 3) Framebuffer Scale Factor: ${nativeScaleFactor}`);
-            
             await session.updateRenderState({
                 baseLayer: new XRWebGLLayer(session, gl, {
                     framebufferScaleFactor: nativeScaleFactor
@@ -343,10 +368,8 @@ function startVR() {
         } else {
             console.warn("Funktionen för att hämta native upplösning (getNativeFramebufferScaleFactor) stöds inte. Använder standardinställningar.");
         }
-
         session.addEventListener('end', onSessionEnded);
         startGame();
-
     }).catch(err => {
         console.warn("VR session request failed or was cancelled:", err);
         vrSessionStarting = false;
@@ -359,7 +382,6 @@ function startVR() {
 
 function onSessionEnded() {
     vrSessionStarting = false;
-
     document.getElementById('info').style.display = 'block';
     document.getElementById('enterVR').style.display = 'block';
     rightStickController = null; leftStickController = null;
@@ -373,7 +395,6 @@ function onSessionEnded() {
     timeRemaining = gameDuration;
     updateClueLights();
     updateWorldTimerDisplay('00', '00');
-    
     window.addEventListener('resize', onWindowResize, false);
 }
 
@@ -398,9 +419,7 @@ function setupControllers() {
     magnifyingGlass.position.set(0, 0, -0.08);
     magnifyingGlass.rotation.x = THREE.MathUtils.degToRad(-92.5);
     magnifyingGlass.rotation.z = 0;
-    
     const ringMaterial = new THREE.MeshStandardMaterial({ color: 0x111111, roughness: 0.4, metalness: 0.1 });
-    
     const frameShape = new THREE.Shape();
     const frameWidth = 0.015;
     const frameHeight = 0.01;
@@ -409,7 +428,6 @@ function setupControllers() {
     frameShape.lineTo(frameWidth / 2, frameHeight / 2);
     frameShape.lineTo(-frameWidth / 2, frameHeight / 2);
     frameShape.lineTo(-frameWidth / 2, -frameHeight / 2);
-    
     const points = [];
     const radius = 0.06;
     const divisions = 64;
@@ -419,46 +437,33 @@ function setupControllers() {
     }
     const extrude_path = new THREE.CatmullRomCurve3(points);
     extrude_path.closed = true;
-    
     const extrudeSettings = {
         steps: 128,
         bevelEnabled: false,
         extrudePath: extrude_path
     };
-    
     const ringGeometry = new THREE.ExtrudeGeometry(frameShape, extrudeSettings);
     const ringMesh = new THREE.Mesh(ringGeometry, ringMaterial);
-    
     ringMesh.rotation.x = Math.PI / 2;
-    
     magnifyingGlass.add(ringMesh);
-
-    // --- START: KORRIGERING FÖR WEGL-VARNING ---
-    // Lägger till colorSpace för att matcha renderarens inställningar
     const renderTargetOptions = {
         type: THREE.HalfFloatType,
         colorSpace: THREE.SRGBColorSpace
     };
     highResLensTarget = new THREE.WebGLRenderTarget(1024, 1024, renderTargetOptions);
     lowResLensTarget = new THREE.WebGLRenderTarget(64, 64, renderTargetOptions);
-    // --- SLUT: KORRIGERING FÖR WEGL-VARNING ---
-
     lensMaterial = new THREE.MeshBasicMaterial({ map: highResLensTarget.texture });
-    
     const lensRadius = 0.055;
     const lensGeometry = new THREE.CircleGeometry(lensRadius, 64);
-    
     const lensMesh = new THREE.Mesh(lensGeometry, lensMaterial);
     lensMesh.name = "lens";
     lensMesh.rotation.y = Math.PI; 
     magnifyingGlass.add(lensMesh);
-
     const handleGeometry = new THREE.CylinderGeometry(0.008, 0.008, 0.12, 8);
     const handleMaterial = new THREE.MeshStandardMaterial({ color: 0x3a2d21, roughness: 0.7, metalness: 0.0 });
     const handleMesh = new THREE.Mesh(handleGeometry, handleMaterial);
     handleMesh.position.y = -0.12;
     magnifyingGlass.add(handleMesh);
-
     const shimmerShape = new THREE.Shape();
     const shimmerWidth = 0.025;
     const shimmerHeight = 0.01;
@@ -467,7 +472,6 @@ function setupControllers() {
     shimmerShape.lineTo(shimmerWidth / 2, shimmerHeight / 2);
     shimmerShape.lineTo(-shimmerWidth / 2, shimmerHeight / 2);
     shimmerShape.lineTo(-shimmerWidth / 2, -shimmerHeight / 2);
-    
     const shimmerPoints = [];
     const shimmerRadius = radius * 1.15;
     for (let i = 0; i <= divisions; i++) {
@@ -475,10 +479,8 @@ function setupControllers() {
         shimmerPoints.push(new THREE.Vector3(Math.cos(angle) * shimmerRadius, 0, Math.sin(angle) * shimmerRadius));
     }
     const shimmerPath = new THREE.CatmullRomCurve3(shimmerPoints);
-    
     const shimmerExtrudeSettings = { steps: 128, bevelEnabled: false, extrudePath: shimmerPath };
     const shimmerGeometry = new THREE.ExtrudeGeometry(shimmerShape, shimmerExtrudeSettings);
-
     const shimmerMaterial = new THREE.MeshBasicMaterial({
         color: 0x00ffff,
         side: THREE.DoubleSide,
@@ -489,15 +491,12 @@ function setupControllers() {
     magnifyingGlassShimmer = new THREE.Mesh(shimmerGeometry, shimmerMaterial);
     magnifyingGlassShimmer.rotation.x = Math.PI / 2;
     magnifyingGlass.add(magnifyingGlassShimmer);
-
     const particleGeometry = new THREE.BufferGeometry();
     const positions = new Float32Array(particleCount * 3);
-
     for (let i = 0; i < particleCount; i++) {
         positions[i * 3] = 10000;
         positions[i * 3 + 1] = 10000;
         positions[i * 3 + 2] = 10000;
-
         particlesData.push({
             position: new THREE.Vector3(10000, 10000, 10000),
             target: new THREE.Vector3(),
@@ -505,9 +504,7 @@ function setupControllers() {
             maxLife: 0
         });
     }
-
     particleGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-
     const particleMaterial = new THREE.PointsMaterial({
         map: createParticleTexture(),
         size: 0.025,
@@ -517,14 +514,10 @@ function setupControllers() {
         depthWrite: false,
         opacity: 0
     });
-
     particleSystem = new THREE.Points(particleGeometry, particleMaterial);
     scene.add(particleSystem);
-
-
     magnifyCamera = new THREE.PerspectiveCamera(7, 1, 0.01, 100);
     scene.add(magnifyCamera);
-
     function onControllerConnected(event) {
         const controller = this;
         const grip = (controller === controller1) ? renderer.xr.getControllerGrip(0) : renderer.xr.getControllerGrip(1);
@@ -533,7 +526,6 @@ function setupControllers() {
         while(grip.children.length > 0) grip.remove(grip.children[0]);
         while(controller.children.length > 0) controller.remove(controller[0]);
         controller.inputSource = xrInputSource;
-
         if (xrInputSource.handedness === 'right') {
             rightStickController = controller;
             gltfLoader.load('models/quest3_controller_right.glb',
@@ -560,7 +552,6 @@ function setupControllers() {
             grip.add(magnifyingGlass);
         }
     }
-
     controller1 = renderer.xr.getController(0);
     controller1.addEventListener('connected', onControllerConnected);
     playerRig.add(controller1);
@@ -582,6 +573,36 @@ function animate() {
     const now = clock.getElapsedTime();
     targetVelocity.set(0, 0, 0);
 
+    // --- START: NY KOD FÖR ATT HANTERA SKIMMER-EFFEKTEN ---
+    if (portraitTransitionEffect && portraitTransitionEffect.active) {
+        const elapsedTime = now - portraitTransitionEffect.startTime;
+        const progress = Math.min(elapsedTime / portraitTransitionEffect.duration, 1.0);
+
+        // Använd en sinusvåg för att tona in och ut (0 -> 1 -> 0)
+        const opacity = Math.sin(progress * Math.PI);
+        portraitTransitionEffect.mesh.material.opacity = opacity;
+
+        // Byt ut bilden när skimret är som starkast (halvvägs)
+        if (progress > 0.5 && !portraitTransitionEffect.swapped) {
+            const textures = getPaintingTextures();
+            const swapTexture = textures.swaps['painting_front_center'];
+            if (swapTexture) {
+                portraitTransitionEffect.targetMesh.material.map = swapTexture;
+                portraitTransitionEffect.targetMesh.material.needsUpdate = true;
+            }
+            portraitTransitionEffect.swapped = true;
+        }
+
+        // När effekten är klar, städa upp
+        if (progress >= 1.0) {
+            scene.remove(portraitTransitionEffect.mesh);
+            portraitTransitionEffect.mesh.geometry.dispose();
+            portraitTransitionEffect.mesh.material.dispose();
+            portraitTransitionEffect.active = false;
+        }
+    }
+    // --- SLUT: NY KOD ---
+
     if (shimmerEffectEndTime && magnifyingGlassShimmer) {
         if (now < shimmerEffectEndTime) {
             const timeSinceStart = now - (shimmerEffectEndTime - 10.0);
@@ -592,23 +613,17 @@ function animate() {
             shimmerEffectEndTime = null;
         }
     }
-    
     if (particleSystem && shimmerEffectEndTime && now < shimmerEffectEndTime) {
         const positions = particleSystem.geometry.attributes.position.array;
-        
         let activeParticles = 0;
         for (let i = 0; i < particleCount; i++) {
             const pData = particlesData[i];
-            
             if (pData.life > 0) {
                 activeParticles++;
                 pData.life -= deltaTime;
-
                 const localTarget = pData.target.clone();
                 const worldTarget = magnifyingGlass.localToWorld(localTarget);
-                
                 pData.position.lerp(worldTarget, deltaTime * 0.8);
-                
                 positions[i * 3] = pData.position.x;
                 positions[i * 3 + 1] = pData.position.y;
                 positions[i * 3 + 2] = pData.position.z;
@@ -616,19 +631,15 @@ function animate() {
                  positions[i * 3 + 1] = -10000;
             }
         }
-        
         particleSystem.visible = activeParticles > 0;
         if (particleSystem.visible) {
              const timeSinceStart = now - (shimmerEffectEndTime - 10.0);
              particleSystem.material.opacity = Math.sin(timeSinceStart * (Math.PI / 10));
              particleSystem.geometry.attributes.position.needsUpdate = true;
         }
-
     } else if (particleSystem) {
         particleSystem.visible = false;
     }
-
-
     if (!renderer.xr.isPresenting) {
         const forwardDirection = new THREE.Vector3();
         camera.getWorldDirection(forwardDirection);
@@ -696,16 +707,12 @@ function animate() {
         handleTeleportation();
     }
     applySmoothMovement(deltaTime);
-
     if (renderer.xr.isPresenting && leftStickGrip && magnifyCamera && highResLensTarget) {
-        
         const originalToneMapping = renderer.toneMapping;
         renderer.toneMapping = THREE.NoToneMapping;
-        
         magnifyingGlass.visible = false;
         const xrEnabled = renderer.xr.enabled;
         renderer.xr.enabled = false;
-        
         if (isHintModeActive) {
             const paintings = getAllPaintingObjects();
             const textures = getPaintingTextures();
@@ -719,33 +726,25 @@ function animate() {
                 }
             });
         }
-
         const playerEyePosition = new THREE.Vector3();
         camera.getWorldPosition(playerEyePosition);
-
         const lensCenterPosition = new THREE.Vector3();
         magnifyingGlass.getWorldPosition(lensCenterPosition);
-        
         const rightVec = new THREE.Vector3();
         const upVec = new THREE.Vector3();
         const forwardVec = new THREE.Vector3();
         magnifyingGlass.matrixWorld.extractBasis(rightVec, upVec, forwardVec);
-        
         const adjustedTarget = new THREE.Vector3();
         adjustedTarget.copy(lensCenterPosition);
         adjustedTarget.addScaledVector(rightVec, lensHorizontalOffset);
         adjustedTarget.addScaledVector(upVec, lensVerticalOffset);
-        
         magnifyCamera.position.copy(playerEyePosition);
-        
         const mainCameraUp = new THREE.Vector3(0, 1, 0);
         const worldQuaternion = new THREE.Quaternion();
         camera.getWorldQuaternion(worldQuaternion);
         mainCameraUp.applyQuaternion(worldQuaternion);
-
         magnifyCamera.up.copy(mainCameraUp);
         magnifyCamera.lookAt(adjustedTarget);
-
         if (targetVelocity.length() > 0) {
             renderer.setRenderTarget(lowResLensTarget);
             renderer.render(scene, magnifyCamera);
@@ -756,12 +755,10 @@ function animate() {
             lensMaterial.map = highResLensTarget.texture;
         }
         lensMaterial.needsUpdate = true;
-
         renderer.setRenderTarget(null);
         renderer.toneMapping = originalToneMapping;
         renderer.xr.enabled = xrEnabled;
         magnifyingGlass.visible = true;
-        
         if (isHintModeActive) {
             const paintings = getAllPaintingObjects();
             const textures = getPaintingTextures();
@@ -775,14 +772,12 @@ function animate() {
                 }
             });
         }
-
         const lensMesh = magnifyingGlass.getObjectByName('lens');
         if (lensMesh) {
             lensMesh.up.copy(mainCameraUp);
             lensMesh.lookAt(playerEyePosition);
         }
     }
-    
     renderer.render(scene, camera);
 }
 
