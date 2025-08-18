@@ -132,14 +132,14 @@ function createPaintings(scene, roomInstance) {
         {
             id: "painting_right_1", imagePath: "images/tavla4.jpg",
             hintImagePath: "images/tavla4_hint.jpg",
-            position: new THREE.Vector3(W_half - wallOffsetToCenter, paintingCenterY, -D_half * 0.4), 
+            position: new THREE.Vector3(W_half + wallOffsetToCenter, paintingCenterY, -D_half * 0.4),
             rotationY: -Math.PI / 2, size: { width: paintingWidth, height: paintingHeight },
             clues: [ { uv: new THREE.Vector2(0.5, 0.5) } ]
         },
         {
             id: "painting_right_2", imagePath: "images/tavla5.jpg",
             hintImagePath: "images/tavla5_hint.jpg",
-            position: new THREE.Vector3(W_half - wallOffsetToCenter, paintingCenterY, D_half * 0.4),
+            position: new THREE.Vector3(W_half + wallOffsetToCenter, paintingCenterY, D_half * 0.4),
             rotationY: -Math.PI / 2, size: { width: paintingWidth, height: paintingHeight }
         }
     ];
