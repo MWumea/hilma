@@ -115,7 +115,7 @@ function init() {
     playerRig.add(camera);
     scene.add(playerRig);
     
-    //Ändrad från false till true, kanske på bekostnad av spelprestanda.
+    //Ändrad från false till true, för bättre bildkvalitet.
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
@@ -138,9 +138,9 @@ function init() {
     if (room && room.roomSize) {
         roomBoundaries = {
             minX: -room.roomSize.width + wallCollisionBuffer,
-            maxX: room.roomSize.width - wallCollisionBuffer,
+            maxX: room.roomSize.width + wallCollisionBuffer,
             minZ: -room.roomSize.depth + wallCollisionBuffer,
-            maxZ: room.roomSize.depth - wallCollisionBuffer,
+            maxZ: room.roomSize.depth + wallCollisionBuffer,
         };
     }
     if (room.benchMesh && room.benchDimensions) {
@@ -280,27 +280,19 @@ function updateTimer() {
 
         if (!portraitTransitionEffect || !portraitTransitionEffect.active) {
             const allPaintings = getAllPaintingObjects();
-            const textures = getPaintingTextures();
-
+            
+            // Hitta båda tavelobjekten via deras unika IDn
             const portraitMesh = allPaintings.find(p => p.userData.id === 'painting_front_center');
-            const swapTexture = textures.swaps['painting_front_center'];
+            const hintMesh = allPaintings.find(p => p.userData.id === 'painting_hint_wide');
 
-            if (portraitMesh && swapTexture) {
-                const shimmerPlaneGeo = new THREE.PlaneGeometry(portraitMesh.geometry.parameters.width, portraitMesh.geometry.parameters.height);
-                const shimmerPlaneMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
-                const shimmerPlane = new THREE.Mesh(shimmerPlaneGeo, shimmerPlaneMat);
-
-                shimmerPlane.position.copy(portraitMesh.position).add(new THREE.Vector3(0, 0, 0.01));
-                shimmerPlane.rotation.copy(portraitMesh.rotation);
-                scene.add(shimmerPlane);
-
+            if (portraitMesh && hintMesh) {
+                // Förbered övertoningen
                 portraitTransitionEffect = {
                     active: true,
                     startTime: clock.getElapsedTime(),
-                    duration: 1.5,
-                    mesh: shimmerPlane,
-                    targetMesh: portraitMesh,
-                    swapped: false
+                    duration: 1.5, // Längd på övertoningen i sekunder
+                    portrait: portraitMesh,
+                    hint: hintMesh
                 };
             }
         }
@@ -567,35 +559,33 @@ function animate() {
     const now = clock.getElapsedTime();
     targetVelocity.set(0, 0, 0);
 
-    // --- START: NY KOD FÖR ATT HANTERA SKIMMER-EFFEKTEN ---
     if (portraitTransitionEffect && portraitTransitionEffect.active) {
         const elapsedTime = now - portraitTransitionEffect.startTime;
         const progress = Math.min(elapsedTime / portraitTransitionEffect.duration, 1.0);
 
-        // Använd en sinusvåg för att tona in och ut (0 -> 1 -> 0)
-        const opacity = Math.sin(progress * Math.PI);
-        portraitTransitionEffect.mesh.material.opacity = opacity;
+        const portrait = portraitTransitionEffect.portrait;
+        const hint = portraitTransitionEffect.hint;
 
-        // Byt ut bilden när skimret är som starkast (halvvägs)
-        if (progress > 0.5 && !portraitTransitionEffect.swapped) {
-            const textures = getPaintingTextures();
-            const swapTexture = textures.swaps['painting_front_center'];
-            if (swapTexture) {
-                portraitTransitionEffect.targetMesh.material.map = swapTexture;
-                portraitTransitionEffect.targetMesh.material.needsUpdate = true;
-            }
-            portraitTransitionEffect.swapped = true;
+        // Första gången: förbered materialen för övertoning
+        if (!portrait.material.transparent) {
+            portrait.material.transparent = true;
+            hint.material.transparent = true;
+            hint.visible = true; // Gör den nya tavlan synlig så den kan tonas in
         }
+
+        // Tona ut porträttet
+        portrait.material.opacity = 1.0 - progress;
+
+        // Tona in den nya tavlan
+        hint.material.opacity = progress;
 
         // När effekten är klar, städa upp
         if (progress >= 1.0) {
-            scene.remove(portraitTransitionEffect.mesh);
-            portraitTransitionEffect.mesh.geometry.dispose();
-            portraitTransitionEffect.mesh.material.dispose();
+            portrait.visible = false; // Göm den gamla tavlan helt
+            hint.material.transparent = false; // Återställ för prestanda
             portraitTransitionEffect.active = false;
         }
     }
-    // --- SLUT: NY KOD ---
 
     if (shimmerEffectEndTime && magnifyingGlassShimmer) {
         if (now < shimmerEffectEndTime) {

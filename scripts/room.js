@@ -205,16 +205,16 @@ class Room {
         // ===== START PÅ BELYSNINGSJUSTERINGAR =====
 
         // Öka ambient light för att lyfta skuggor
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.55); 
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); //tidigare 0.55 
         this.scene.add(ambientLight);
 
         // Förstärk hemisphere light för mjukare, jämnare belysning
-        const hemisphereLight = new THREE.HemisphereLight(0xccccff, 0x888866, 0.75); // Justerat groundColor lite för mindre intensivt gult
+        const hemisphereLight = new THREE.HemisphereLight(0xccccff, 0x888866, 0.9); // Justerat groundColor lite för mindre intensivt gult, tidigare 0.75
         hemisphereLight.position.y = this.roomSize.height;
         this.scene.add(hemisphereLight);
 
         // Huvudsakligt solljus (DirectionalLight)
-        const sunLight = new THREE.DirectionalLight(0xfff0e5, 0.9); 
+        const sunLight = new THREE.DirectionalLight(0xfff0e5, 1.2); //tidigare 0.9 
         sunLight.position.set(this.roomSize.width * 0.5, this.roomSize.height + this.pyramidHeight + 3, this.roomSize.depth * 0.5);
         sunLight.target.position.set(0, this.roomSize.height / 2, 0);
         this.scene.add(sunLight.target);
@@ -232,7 +232,7 @@ class Room {
         this.scene.add(sunLight);
 
         // Lägg till en svag fyllbelysning (fill light) från motsatt håll
-        const fillLight = new THREE.DirectionalLight(0xfff0e5, 0.2); // Svag intensitet
+        const fillLight = new THREE.DirectionalLight(0xfff0e5, 0.35); // Svag intensitet, tidigare 0.2
         fillLight.position.set(-this.roomSize.width * 0.5, this.roomSize.height * 0.75, -this.roomSize.depth * 0.5); // Motsatt och något lägre
         fillLight.target.position.set(0, this.roomSize.height / 2, 0);
         this.scene.add(fillLight.target);

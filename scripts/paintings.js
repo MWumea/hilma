@@ -103,11 +103,24 @@ function createPaintings(scene, roomInstance) {
     const paintingData = [
         {
             id: "painting_front_center", imagePath: "images/Hilma_portrait.jpg",
-            swapImagePath: "images/forstoringsglas_hint.jpg",
             position: new THREE.Vector3(0, paintingCenterY, -D_half + wallOffsetToCenter),
             rotationY: 0, size: { width: paintingWidth, height: paintingHeight }, 
             isFlat: true
         },
+        // --- START PÅ NYTT TAVELOBJEKT ---
+        {
+            id: "painting_hint_wide", imagePath: "images/forstoringsglas_hint.jpg",
+            position: new THREE.Vector3(0, paintingCenterY, -D_half + wallOffsetToCenter), // Samma position
+            rotationY: 0, // Samma rotation
+            size: { 
+                // Samma höjd som övriga, men bredden kalkyleras från bildens proportioner
+                width: paintingHeight * (2732 / 2048), 
+                height: paintingHeight 
+            }, 
+            isFlat: true,
+            initiallyVisible: false // Denna tavla är osynlig från start
+        },
+        // --- SLUT PÅ NYTT TAVELOBJEKT ---
         {
             id: "painting_left_1", imagePath: "images/tavla1.jpg",
             hintImagePath: "images/tavla1_hint.jpg",
@@ -154,30 +167,7 @@ function createPaintings(scene, roomInstance) {
         }
         
         if (data.swapImagePath) {
-            swapTextures[data.id] = textureLoaderInstanceP.load(data.swapImagePath, (texture) => {
-                texture.anisotropy = anisoVal;
-
-                // --- START PÅ KORRIGERAD KOD FÖR ASPEKT-HANTERING ---
-                const geometryAspectRatio = data.size.width / data.size.height; // ~0.67 för porträttet
-                const textureAspectRatio = 2732 / 2048; // Exakt förhållande baserat på bildens dimensioner
-
-                const ratio = textureAspectRatio / geometryAspectRatio;
-
-                if (ratio > 1) {
-                    // Texturen är bredare än geometrin. Anpassa X-axeln.
-                    texture.repeat.x = 1 / ratio;
-                    texture.offset.x = (1 - 1 / ratio) / 2;
-                } else {
-                    // Texturen är högre än geometrin. Anpassa Y-axeln.
-                    texture.repeat.y = ratio;
-                    texture.offset.y = (1 - ratio) / 2;
-                }
-                
-                // Förhindra att kanterna "blöder över" och repeteras
-                texture.wrapS = THREE.ClampToEdgeWrapping;
-                texture.wrapT = THREE.ClampToEdgeWrapping;
-                // --- SLUT PÅ KORRIGERAD KOD ---
-            });
+            swapTextures[data.id] = textureLoaderInstanceP.load(data.swapImagePath, (texture) => {texture.anisotropy = anisoVal;});
         }
 
         const frontMaterialProperties = { map: paintingTexture, metalness: 0.0, };
@@ -208,6 +198,9 @@ function createPaintings(scene, roomInstance) {
         const paintingMesh = new THREE.Mesh(paintingGeometry, materialsForMesh);
         paintingMesh.position.copy(data.position);
         paintingMesh.rotation.y = data.rotationY;
+        
+        if (data.initiallyVisible === false) paintingMesh.visible = false;
+        
         paintingMesh.castShadow = false; 
         paintingMesh.receiveShadow = true;
         paintingMesh.userData = { id: data.id, isPainting: true, isFlat: !!data.isFlat };
