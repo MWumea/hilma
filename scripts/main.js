@@ -116,7 +116,7 @@ function init() {
     scene.add(playerRig);
     
     //Ändrad från false till true, kanske på bekostnad av spelprestanda.
-    renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0));
     
