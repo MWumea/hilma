@@ -13,7 +13,7 @@ let worldTimerObject = null;
 // Objekt för att hålla reda på original-, ledtråds- och specialtexturer
 let originalTextures = {};
 let hintTextures = {};
-let swapTextures = {}; // NY: För bilder som ska bytas ut
+let swapTextures = {}; // För bilder som ska bytas ut
 
 // Funktion för att skapa timern i 3D-världen
 function createWorldTimer(scene, paintingMesh, paintingData) {
@@ -103,7 +103,6 @@ function createPaintings(scene, roomInstance) {
     const paintingData = [
         {
             id: "painting_front_center", imagePath: "images/Hilma_portrait.jpg",
-            // --- HÄR ÄR ÄNDRINGEN: Lägger till bilden som porträttet ska bytas ut mot ---
             swapImagePath: "images/forstoringsglas_hint.jpg",
             position: new THREE.Vector3(0, paintingCenterY, -D_half + wallOffsetToCenter),
             rotationY: 0, size: { width: paintingWidth, height: paintingHeight }, 
@@ -126,7 +125,9 @@ function createPaintings(scene, roomInstance) {
             id: "painting_back_center", imagePath: "images/tavla3.jpg",
             hintImagePath: "images/tavla3_hint.jpg",
             position: new THREE.Vector3(0, paintingCenterY, D_half - wallOffsetToCenter),
-            rotationY: Math.PI, size: { width: paintingWidth * 1.4, height: paintingHeight * 0.7 }
+            rotationY: Math.PI, 
+            // --- HÄR ÄR ÄNDRINGEN: Samma höjd som övriga, bredd justerad för 4:3-förhållande ---
+            size: { width: paintingHeight * (4/3), height: paintingHeight }
         },
         {
             id: "painting_right_1", imagePath: "images/tavla4.jpg",
@@ -153,7 +154,6 @@ function createPaintings(scene, roomInstance) {
             hintTextures[data.id] = textureLoaderInstanceP.load(data.hintImagePath, (texture) => {texture.anisotropy = anisoVal;});
         }
         
-        // --- NY KOD: Laddar in swap-bilden ---
         if (data.swapImagePath) {
             swapTextures[data.id] = textureLoaderInstanceP.load(data.swapImagePath, (texture) => {texture.anisotropy = anisoVal;});
         }
@@ -233,7 +233,6 @@ function getPaintingTextures() {
     return {
         originals: originalTextures,
         hints: hintTextures,
-        // --- NY KOD: Gör swap-texturerna tillgängliga ---
         swaps: swapTextures
     };
 }

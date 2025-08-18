@@ -78,9 +78,7 @@ let particleSystem = null;
 const particleCount = 200;
 let particlesData = [];
 
-// --- START: NYA GLOBALA VARIABLER FÖR SKIMMER-EFFEKT ---
 let portraitTransitionEffect = null;
-// --- SLUT: NYA GLOBALA VARIABLER ---
 
 
 function checkXR() {
@@ -279,7 +277,6 @@ function updateTimer() {
         isHintModeActive = true;
         console.log(`HINT MODE AKTIVERAT efter ${hintActivationTime} sekunder.`);
 
-        // --- START: NY KOD FÖR ATT BYTA UT HILMAS PORTRÄTT ---
         if (!portraitTransitionEffect || !portraitTransitionEffect.active) {
             const allPaintings = getAllPaintingObjects();
             const textures = getPaintingTextures();
@@ -288,28 +285,24 @@ function updateTimer() {
             const swapTexture = textures.swaps['painting_front_center'];
 
             if (portraitMesh && swapTexture) {
-                // Skapa en skimrande yta framför tavlan
                 const shimmerPlaneGeo = new THREE.PlaneGeometry(portraitMesh.geometry.parameters.width, portraitMesh.geometry.parameters.height);
                 const shimmerPlaneMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0 });
                 const shimmerPlane = new THREE.Mesh(shimmerPlaneGeo, shimmerPlaneMat);
 
-                // Positionera precis framför porträttet
                 shimmerPlane.position.copy(portraitMesh.position).add(new THREE.Vector3(0, 0, 0.01));
                 shimmerPlane.rotation.copy(portraitMesh.rotation);
                 scene.add(shimmerPlane);
 
-                // Starta övergångseffekten
                 portraitTransitionEffect = {
                     active: true,
                     startTime: clock.getElapsedTime(),
-                    duration: 1.5, // Total tid för effekten i sekunder
+                    duration: 1.5,
                     mesh: shimmerPlane,
                     targetMesh: portraitMesh,
                     swapped: false
                 };
             }
         }
-        // --- SLUT: NY KOD ---
 
         if (clock) {
             shimmerEffectEndTime = clock.getElapsedTime() + 10.0;
@@ -783,3 +776,4 @@ function animate() {
 
 init();
 checkXR();
+}
