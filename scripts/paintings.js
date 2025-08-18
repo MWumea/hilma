@@ -208,7 +208,10 @@ function createPaintings(scene, roomInstance) {
         paintingObjects.push(paintingMesh);
         
         if (roomInstance && typeof roomInstance.addPaintingReference === 'function') {
-            roomInstance.addPaintingReference({mesh: paintingMesh, data: data });
+            // Lägg endast till referens för spotlights om tavlan är synlig från start
+            if (data.initiallyVisible !== false) {
+                roomInstance.addPaintingReference({mesh: paintingMesh, data: data });
+            }
         }
 
         if (data.clues && data.clues.length > 0) {

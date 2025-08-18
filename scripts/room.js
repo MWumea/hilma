@@ -214,7 +214,7 @@ class Room {
         this.scene.add(hemisphereLight);
 
         // Huvudsakligt solljus (DirectionalLight)
-        const sunLight = new THREE.DirectionalLight(0xfff0e5, 1.2); //tidigare 0.9 
+        const sunLight = new THREE.DirectionalLight(0xfff0e5, 1.0); //tidigare 0.9 
         sunLight.position.set(this.roomSize.width * 0.5, this.roomSize.height + this.pyramidHeight + 3, this.roomSize.depth * 0.5);
         sunLight.target.position.set(0, this.roomSize.height / 2, 0);
         this.scene.add(sunLight.target);
