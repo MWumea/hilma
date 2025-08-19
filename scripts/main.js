@@ -86,7 +86,7 @@ function checkXR() {
     if ('xr' in navigator) {
         navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
             if (supported) {
-                document.getElementById('enterVR').innerText = "Starta Galleri";
+                document.getElementById('enterVR').innerText = "Starta spelet";
                 document.getElementById('enterVR').style.display = 'block';
                 vrButton = document.getElementById('enterVR');
                 vrButton.addEventListener('click', startVR);
