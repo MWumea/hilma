@@ -54,9 +54,21 @@ class Room {
         const floorNormalMap = this.loadRepeatingTexture('dark_wooden_planks_nor_gl_1k.jpg', 4, 4);
         const floorAoMap = this.loadRepeatingTexture('dark_wooden_planks_ao_1k.jpg', 4, 4);
         const floorMaterial = new THREE.MeshStandardMaterial({
-            map: floorColorMap, roughnessMap: floorRoughnessMap, normalMap: floorNormalMap,
-            aoMap: floorAoMap, aoMapIntensity: 0.8, normalScale: new THREE.Vector2(0.7, 0.7),
-            metalness: 0.0, envMapIntensity: 0.4
+            map: floorColorMap,
+            roughnessMap: floorRoughnessMap,
+            normalMap: floorNormalMap,
+            aoMap: floorAoMap,
+            aoMapIntensity: 0.8,
+            normalScale: new THREE.Vector2(0.7, 0.7),
+            metalness: 0.0,
+
+            // NYTT: Sänk den globala strävheten. Detta gör hela golvet blankare
+            // och får reflektionerna från roughnessMap att framträda skarpare.
+            roughness: 0.6, 
+
+            // NYTT: Öka intensiteten på miljöreflektionerna (från skyboxen).
+            // Detta ger reflektionerna mer färg och liv.
+            envMapIntensity: 1.0 
         });
         const floor = new THREE.Mesh(floorGeometry, floorMaterial);
         floor.rotation.x = -Math.PI / 2;
@@ -181,7 +193,7 @@ class Room {
 
         const spotlight = new THREE.SpotLight(
             0xfff5e0,
-            2.0,
+            1.5, // NU ÄR VÄRDET LÄGRE. Spotlighten ska bara accentuera, inte lysa upp helt.
             15,
             Math.PI / 15,
             0.25,
@@ -204,17 +216,18 @@ class Room {
     setupGalleryLighting() {
         // ===== START PÅ BELYSNINGSJUSTERINGAR =====
 
-        // Öka ambient light för att lyfta skuggor
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7); //tidigare 0.55 
+        // Fortsätt hålla ambient light lågt för kontrastens skull, men en aning högre.
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.2); 
         this.scene.add(ambientLight);
 
-        // Förstärk hemisphere light för mjukare, jämnare belysning
-        const hemisphereLight = new THREE.HemisphereLight(0xccccff, 0x888866, 0.9); // Justerat groundColor lite för mindre intensivt gult, tidigare 0.75
+        // Öka HemisphereLight kraftigt. Detta är den viktigaste ändringen
+        // för att lysa upp hela rummet och få bort den dunkla känslan.
+        const hemisphereLight = new THREE.HemisphereLight(0xccccff, 0x888866, 1.2); 
         hemisphereLight.position.y = this.roomSize.height;
         this.scene.add(hemisphereLight);
 
-        // Huvudsakligt solljus (DirectionalLight)
-        const sunLight = new THREE.DirectionalLight(0xfff0e5, 1.0); //tidigare 0.9 
+        // Öka även solljuset för att få starkare direkta ljusstrålar och tydligare skuggor.
+        const sunLight = new THREE.DirectionalLight(0xfff0e5, 2.0);
         sunLight.position.set(this.roomSize.width * 0.5, this.roomSize.height + this.pyramidHeight + 3, this.roomSize.depth * 0.5);
         sunLight.target.position.set(0, this.roomSize.height / 2, 0);
         this.scene.add(sunLight.target);
@@ -228,16 +241,10 @@ class Room {
         sunLight.shadow.camera.right = shadowCamSize;
         sunLight.shadow.camera.top = shadowCamSize;
         sunLight.shadow.camera.bottom = -shadowCamSize;
-        sunLight.shadow.bias = -0.001; // Behåller befintlig bias, bra för att motverka shadow acne
+        sunLight.shadow.bias = -0.001;
         this.scene.add(sunLight);
 
-        // Lägg till en svag fyllbelysning (fill light) från motsatt håll
-        const fillLight = new THREE.DirectionalLight(0xfff0e5, 0.35); // Svag intensitet, tidigare 0.2
-        fillLight.position.set(-this.roomSize.width * 0.5, this.roomSize.height * 0.75, -this.roomSize.depth * 0.5); // Motsatt och något lägre
-        fillLight.target.position.set(0, this.roomSize.height / 2, 0);
-        this.scene.add(fillLight.target);
-        fillLight.castShadow = false; // Fyllbelysning bör sällan kasta skuggor
-        this.scene.add(fillLight);
+        // Vi behåller fillLight borttagen för att undvika onödigt platt ljus.
 
         // ===== SLUT PÅ BELYSNINGSJUSTERINGAR =====
 

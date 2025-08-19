@@ -128,7 +128,7 @@ function init() {
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.toneMappingExposure = 1.2; // Öka detta värde för en global ljus-boost
     const container = document.getElementById('container');
     container.appendChild(renderer.domElement);
     timerElement = document.getElementById('timer');

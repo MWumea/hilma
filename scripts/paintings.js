@@ -179,7 +179,7 @@ function createPaintings(scene, roomInstance) {
             frontMaterialProperties.aoMap = canvasAoMap;
             frontMaterialProperties.aoMapIntensity = 0.6;
         } else {
-            frontMaterialProperties.roughness = 0.8;
+            frontMaterialProperties.roughness = 0.7;
         }
         
         const frontMaterial = new THREE.MeshStandardMaterial(frontMaterialProperties);
